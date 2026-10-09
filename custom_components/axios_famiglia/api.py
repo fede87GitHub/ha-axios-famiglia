@@ -17,12 +17,12 @@ from bs4 import BeautifulSoup
 from .const import (
     AJAX_PATH,
     BASE_URL,
-    COMMUNICATIONS_LIMIT,
     DASHBOARD_INIT_ACTIONS,
     DASHBOARD_PATH_HINT,
+    DEFAULT_COMMUNICATIONS_LIMIT,
+    DEFAULT_REGISTER_DAYS,
+    DEFAULT_REQUEST_TIMEOUT,
     LOGIN_PATH,
-    REGISTER_DAYS,
-    REQUEST_TIMEOUT,
     USER_AGENT,
 )
 
@@ -98,12 +98,15 @@ class AxiosFamigliaClient:
         self,
         session: ClientSession,
         credentials: AxiosCredentials,
-        register_days: int = REGISTER_DAYS,
+        register_days: int = DEFAULT_REGISTER_DAYS,
+        communications_limit: int = DEFAULT_COMMUNICATIONS_LIMIT,
+        request_timeout: int = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self._session = session
         self._credentials = credentials
         self._register_days = register_days
-        self._timeout = ClientTimeout(total=REQUEST_TIMEOUT)
+        self._communications_limit = communications_limit
+        self._timeout = ClientTimeout(total=request_timeout)
         self._logged_in = False
         self._dashboard_url: str | None = None
         self._rvt: str | None = None
@@ -255,7 +258,9 @@ class AxiosFamigliaClient:
         absences_html = await self._action("FAMILY_ASSENZE")
         register_html = await self._action("FAMILY_REGISTRO_CLASSE")
         return {
-            "communications": parse_communications(communications_html),
+            "communications": parse_communications(
+                communications_html, self._communications_limit
+            ),
             "absences": parse_absences(absences_html),
             "register": parse_register(register_html, self._register_days),
             "updated_at": datetime.now().astimezone().isoformat(),
@@ -266,7 +271,9 @@ def _text(node: Any) -> str:
     return " ".join(node.get_text(" ", strip=True).split()) if node else ""
 
 
-def parse_communications(raw_html: str) -> dict[str, Any]:
+def parse_communications(
+    raw_html: str, limit: int = DEFAULT_COMMUNICATIONS_LIMIT
+) -> dict[str, Any]:
     soup = BeautifulSoup(raw_html, "html.parser")
     items: list[dict[str, Any]] = []
     for row in soup.select("li[data-post-id]"):
@@ -290,10 +297,12 @@ def parse_communications(raw_html: str) -> dict[str, Any]:
             "type": item_type,
         })
     return {
+        # Totale e non lette contano tutte le comunicazioni del portale;
+        # solo l'elenco è limitato.
         "total": len(items),
         "unread": sum(1 for item in items if item["unread"]),
         "latest": items[0] if items else None,
-        "items": items[:COMMUNICATIONS_LIMIT],
+        "items": items[:limit],
     }
 
 
@@ -374,7 +383,7 @@ def _limit_recent_days(days: list[dict[str, Any]], limit_days: int) -> list[dict
     return days[:limit_days]
 
 
-def parse_register(raw_html: str, limit_days: int = REGISTER_DAYS) -> dict[str, Any]:
+def parse_register(raw_html: str, limit_days: int = DEFAULT_REGISTER_DAYS) -> dict[str, Any]:
     soup = BeautifulSoup(raw_html, "html.parser")
     days: list[dict[str, Any]] = []
     table = soup.select_one("#table-rcla")

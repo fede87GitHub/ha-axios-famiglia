@@ -21,6 +21,7 @@ from .items import (
     EVENT_NEW_NOTE,
     EVENT_NEW_TEST,
     calendar_entries,
+    topic_entries,
 )
 
 
@@ -28,7 +29,8 @@ from .items import (
 class CalendarSpec:
     key: str  # suffisso dell'entity_id e translation_key
     icon: str
-    types: frozenset[str]  # tipi di voce mostrati in questo calendario
+    types: frozenset[str] = frozenset()  # tipi di voce mostrati (se non è il calendario argomenti)
+    topics: bool = False  # True: calendario degli argomenti svolti
 
 
 CALENDARS: tuple[CalendarSpec, ...] = (
@@ -40,6 +42,7 @@ CALENDARS: tuple[CalendarSpec, ...] = (
         "annotations", "mdi:note-text", frozenset({EVENT_NEW_ANNOTATION, EVENT_NEW_NOTE})
     ),
     CalendarSpec("communications", "mdi:bullhorn", frozenset({EVENT_NEW_COMMUNICATION})),
+    CalendarSpec("topics", "mdi:book-open-variant", topics=True),
 )
 
 
@@ -70,6 +73,11 @@ class AxiosCalendar(AxiosEntity, CalendarEntity):
 
     def _calendar_events(self) -> list[CalendarEvent]:
         language = self.coordinator.hass.config.language
+        data = self.coordinator.data or {}
+        if self._spec.topics:
+            entries = topic_entries(data, language)
+        else:
+            entries = calendar_entries(data, language, self._spec.types)
         return [
             CalendarEvent(
                 start=entry["start"],
@@ -78,9 +86,7 @@ class AxiosCalendar(AxiosEntity, CalendarEntity):
                 description=entry["description"],
                 uid=entry["uid"],
             )
-            for entry in calendar_entries(
-                self.coordinator.data or {}, language, self._spec.types
-            )
+            for entry in entries
         ]
 
     @property

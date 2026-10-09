@@ -1,8 +1,11 @@
-"""Pure helpers (no Home Assistant imports) shared by the calendar and event platforms.
+"""Pure helpers (no Home Assistant imports) shared by the calendar, event and sensor platforms.
 
 An "item" is one thing that can be new or can be shown on a calendar:
 a communication, an absence/late/early-exit entry, a homework, a test,
 an annotation or a disciplinary note.
+
+Lesson topics ("argomenti") are NOT items: they are written every day by the
+teachers, so they must never trigger a "new item" notification.
 """
 from __future__ import annotations
 
@@ -59,12 +62,14 @@ _CALENDAR_LABELS: dict[str, dict[str, str]] = {
         EVENT_NEW_TEST: "Verifica",
         EVENT_NEW_ANNOTATION: "Annotazione",
         EVENT_NEW_NOTE: "Nota disciplinare",
+        "topics": "Argomenti",
     },
     "en": {
         EVENT_NEW_HOMEWORK: "Homework",
         EVENT_NEW_TEST: "Test",
         EVENT_NEW_ANNOTATION: "Annotation",
         EVENT_NEW_NOTE: "Disciplinary note",
+        "topics": "Topics",
     },
 }
 
@@ -236,3 +241,49 @@ def calendar_entries(
             "description": description,
         })
     return entries
+
+
+def topic_entries(data: dict[str, Any], language: str | None) -> list[dict[str, Any]]:
+    """One all-day calendar entry per register day that has lesson topics."""
+    label = _CALENDAR_LABELS[_lang(language)]["topics"]
+    entries: list[dict[str, Any]] = []
+    seen_uids: set[str] = set()
+    for day in (data.get("register") or {}).get("days", []):
+        topics = day.get("topics", "")
+        raw_date = day.get("date", "")
+        parsed = parse_date(raw_date)
+        if not topics or parsed is None:
+            continue
+        uid = f"topics:{raw_date}"
+        if uid in seen_uids:
+            continue
+        seen_uids.add(uid)
+        entries.append({
+            "uid": uid,
+            "start": parsed,
+            "end": parsed + timedelta(days=1),
+            "summary": f"{label}: {_short(topics, 80)}",
+            "description": topics,
+        })
+    return entries
+
+
+def latest_topics(data: dict[str, Any]) -> dict[str, Any] | None:
+    """The most recent register day that has lesson topics, or None."""
+    candidates: list[tuple[date | None, int, dict[str, Any]]] = []
+    for index, day in enumerate((data.get("register") or {}).get("days", [])):
+        if day.get("topics"):
+            candidates.append((parse_date(day.get("date", "")), index, day))
+    if not candidates:
+        return None
+    dated = [c for c in candidates if c[0] is not None]
+    if dated:
+        parsed, _, day = max(dated, key=lambda c: (c[0], -c[1]))
+    else:
+        # nessuna data leggibile: il portale elenca di norma dal più recente
+        parsed, _, day = candidates[0]
+    return {
+        "date": day.get("date", ""),
+        "iso": parsed.isoformat() if parsed else None,
+        "topics": day.get("topics", ""),
+    }

@@ -4,7 +4,7 @@
   <img src="custom_components/axios_famiglia/brand/icon@2x.png" alt="Axios Famiglia" width="128">
 </p>
 
-Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.io/) che legge i dati del registro elettronico **Axios Famiglia** (portale `registrofamiglie.axioscloud.it`) e li espone come sensori, calendari ed eventi per le notifiche: comunicazioni, assenze, ritardi, compiti e verifiche, annotazioni e note disciplinari.
+Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.io/) che legge i dati del registro elettronico **Axios Famiglia** (portale `registrofamiglie.axioscloud.it`) e li espone come sensori, calendari ed eventi per le notifiche: comunicazioni, assenze, ritardi, compiti e verifiche, annotazioni, note disciplinari e argomenti svolti.
 
 [![Validate](https://github.com/fede87GitHub/ha-axios-famiglia/actions/workflows/validate.yml/badge.svg)](https://github.com/fede87GitHub/ha-axios-famiglia/actions/workflows/validate.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
@@ -15,9 +15,10 @@ Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.i
 
 - Accesso con le stesse credenziali del portale famiglie.
 - Una voce di configurazione **per ogni studente**, ciascuna con il proprio dispositivo e le proprie entità.
-- Aggiornamento automatico ogni **30 minuti**.
+- Aggiornamento automatico, di default ogni **30 minuti**.
+- **Opzioni modificabili** in qualsiasi momento, senza rifare il login (intervallo, giorni di registro, comunicazioni, timeout).
 - **Sensori** con i conteggi e gli elenchi principali.
-- **Quattro calendari** separati: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni.
+- **Cinque calendari** separati: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni, argomenti svolti.
 - **Entità evento** che scatta a ogni novità, pronta per le notifiche.
 - Interfaccia e nomi delle entità in **italiano** e **inglese**.
 
@@ -29,7 +30,7 @@ Per ogni studente vengono create queste entità. Il prefisso è `<dominio>.axios
 
 | Entità (suffisso) | Valore | Attributi principali |
 |---|---|---|
-| `communications` | Totale comunicazioni | `non_lette`, `ultima`, `elenco` (ultime 20) |
+| `communications` | Totale comunicazioni | `non_lette`, `ultima`, `elenco` (le ultime N, vedi Opzioni) |
 | `communications_unread` | Comunicazioni non lette | – |
 | `absences` | Assenze totali | `ultimo_evento`, `eventi` |
 | `late_entries` | Ritardi totali | – |
@@ -38,9 +39,14 @@ Per ogni studente vengono create queste entità. Il prefisso è `<dominio>.axios
 | `homework` | Giorni con compiti o verifiche | `giorni_considerati`, `elenco` |
 | `annotations` | Giorni con annotazioni | `elenco` |
 | `disciplinary_notes` | Giorni con note disciplinari | `elenco` |
+| `last_topics` | Data dell'ultimo giorno con argomenti | `argomenti`, `data_iso` |
 | `last_update` | Data e ora dell'ultimo aggiornamento | – |
 
-Compiti, annotazioni e note disciplinari si riferiscono agli **ultimi 14 giorni** del registro di classe, non a tutto l'anno scolastico.
+Compiti, annotazioni, note disciplinari e argomenti si riferiscono agli **ultimi giorni** del registro di classe (14 di default, vedi Opzioni), non a tutto l'anno scolastico.
+
+Gli elenchi dei sensori non contengono gli argomenti svolti, perché sono testi lunghi e farebbero superare il limite di dimensione degli attributi salvati da Home Assistant. Gli argomenti si leggono nel calendario **Argomenti** e nel sensore **Ultimi argomenti**.
+
+`last_topics` mostra l'ultimo giorno del registro che ha argomenti, che non coincide necessariamente con oggi (nei weekend e nei giorni festivi non ce ne sono). Lo stato è la data come la scrive il portale, mentre gli argomenti sono nell'attributo `argomenti`.
 
 ### Calendari
 
@@ -51,7 +57,10 @@ Le voci compaiono come eventi di un'intera giornata.
 | `calendar.axios_<nome>_absences` | Assenze, ritardi e uscite anticipate | data della voce in Assenze |
 | `calendar.axios_<nome>_homework` | Compiti e verifiche | giorno della riga di registro |
 | `calendar.axios_<nome>_annotations` | Annotazioni e note disciplinari | giorno della riga di registro |
-| `calendar.axios_<nome>_communications` | Comunicazioni (ultime 20) | data di pubblicazione |
+| `calendar.axios_<nome>_communications` | Comunicazioni (le ultime N) | data di pubblicazione |
+| `calendar.axios_<nome>_topics` | Argomenti svolti (ultimi giorni di registro) | giorno della riga di registro |
+
+Nel calendario **Argomenti** il titolo mostra l'inizio del testo e la descrizione dell'evento contiene tutti gli argomenti del giorno. I giorni senza argomenti non hanno eventi.
 
 I compiti compaiono nel giorno della riga di registro in cui sono inseriti, non nella data di scadenza.
 
@@ -68,6 +77,8 @@ I compiti compaiono nel giorno della riga di registro in cui sono inseriti, non 
 | `new_annotation` | Nuova annotazione |
 | `new_disciplinary_note` | Nuova nota disciplinare |
 
+Gli argomenti svolti **non** generano eventi, perché cambiano ogni giorno.
+
 Gli attributi dell'evento includono `student`, `date`, i dettagli della voce (`title`, `author`, `description`, `text`, a seconda del tipo) e `message`, un testo già pronto per la notifica, in italiano o inglese secondo la lingua di Home Assistant.
 
 Dettagli sul funzionamento:
@@ -82,15 +93,21 @@ Esempio di automazione:
 ```yaml
 alias: Axios - notifica novità
 description: ""
+mode: queued
 triggers:
   - trigger: state
     entity_id: event.axios_mario_news
+conditions:
+  - condition: template
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.state not in ['unknown', 'unavailable'] }}
 actions:
   - action: notify.notify
     data:
       title: "Axios {{ trigger.to_state.attributes.student }}"
       message: "{{ trigger.to_state.attributes.message }}"
-mode: queued
 ```
 
 Per filtrare un solo tipo di novità aggiungi una condizione, ad esempio `{{ trigger.to_state.attributes.event_type == 'new_test' }}`.
@@ -122,6 +139,21 @@ Per filtrare un solo tipo di novità aggiungi una condizione, ad esempio `{{ tri
 
 Le credenziali vengono salvate nella configurazione locale di Home Assistant e inviate solo ad Axios per l'accesso al portale.
 
+## Opzioni
+
+Le opzioni si cambiano quando vuoi, senza rifare il login: **Impostazioni → Dispositivi e servizi → Axios Famiglia**, poi **Configura** sulla voce dello studente. Ogni studente ha le proprie opzioni. Quando salvi, l'integrazione si ricarica da sola.
+
+| Opzione | Predefinito | Valori | Cosa fa |
+|---|---|---|---|
+| Intervallo di aggiornamento | 30 minuti | da 5 a 1440 | Ogni quanto viene interrogato il portale. Il minimo è 5 minuti per non sovraccaricarlo. |
+| Giorni di registro da leggere | 14 | da 1 a 90 | Finestra usata per compiti, verifiche, annotazioni, note disciplinari e argomenti. |
+| Comunicazioni da mostrare | 20 | da 1 a 50 | Quante tra le ultime comunicazioni compaiono nell'elenco del sensore, nel calendario e nell'evento novità. Il contatore delle comunicazioni e quello delle non lette considerano sempre tutte. |
+| Timeout delle richieste | 30 secondi | da 10 a 120 | Attesa massima per ogni richiesta al portale. Aumentalo se la tua connessione è lenta. |
+
+Il limite di 50 comunicazioni esiste perché l'elenco è un attributo del sensore: Home Assistant non salva nello storico attributi più grandi di circa 16 KB.
+
+Se **aumenti** i giorni di registro o il numero di comunicazioni, le voci più vecchie che entrano nella finestra vengono memorizzate **senza notifiche**, perché non sono novità. Per lo stesso motivo, una voce davvero nuova comparsa nel momento esatto del salvataggio può non essere notificata.
+
 ## Risoluzione dei problemi
 
 | Messaggio | Significato |
@@ -146,6 +178,7 @@ Quando apri una issue **non incollare mai** password, cookie, token o catture di
 - I dati arrivano dall'analisi delle pagine web, quindi dipendono dalla loro struttura.
 - Sono lette solo le sezioni Comunicazioni, Assenze e Registro di classe.
 - Ogni voce di configurazione gestisce un solo accesso al portale.
+- Del registro di classe sono considerati solo gli ultimi giorni scelti nelle opzioni (al massimo 90).
 
 ## Contribuire
 

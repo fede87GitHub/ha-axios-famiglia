@@ -23,12 +23,43 @@
       "already_configured": "Account already configured"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Axios Famiglia options",
+        "description": "These settings can be changed at any time. The integration reloads when you save.",
+        "data": {
+          "scan_interval": "Update interval (minutes)",
+          "register_days": "Register days to read",
+          "communications_limit": "Communications to show",
+          "request_timeout": "Request timeout (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often the portal is queried. Minimum 5 minutes, to avoid overloading the portal.",
+          "register_days": "How many recent days of the class register are used for homework, tests, annotations, notes and lesson topics (1 to 90).",
+          "communications_limit": "How many of the latest communications appear in the sensor list, the calendar and the news event (1 to 50).",
+          "request_timeout": "Maximum wait for each request to the portal (10 to 120 seconds)."
+        }
+      }
+    }
+  },
   "entity": {
     "calendar": {
-      "absences": { "name": "Absences and exits" },
-      "homework": { "name": "Homework and tests" },
-      "annotations": { "name": "Annotations and notes" },
-      "communications": { "name": "Communications" }
+      "absences": {
+        "name": "Absences and exits"
+      },
+      "homework": {
+        "name": "Homework and tests"
+      },
+      "annotations": {
+        "name": "Annotations and notes"
+      },
+      "communications": {
+        "name": "Communications"
+      },
+      "topics": {
+        "name": "Lesson topics"
+      }
     },
     "event": {
       "news": {
@@ -48,16 +79,39 @@
       }
     },
     "sensor": {
-      "communications": { "name": "Communications" },
-      "communications_unread": { "name": "Unread communications" },
-      "absences": { "name": "Absences" },
-      "late_entries": { "name": "Late entries" },
-      "early_exits": { "name": "Early exits" },
-      "absence_percentage": { "name": "Absence percentage" },
-      "homework": { "name": "Homework and tests" },
-      "annotations": { "name": "Annotations" },
-      "disciplinary_notes": { "name": "Disciplinary notes" },
-      "last_update": { "name": "Last update" }
+      "communications": {
+        "name": "Communications"
+      },
+      "communications_unread": {
+        "name": "Unread communications"
+      },
+      "absences": {
+        "name": "Absences"
+      },
+      "late_entries": {
+        "name": "Late entries"
+      },
+      "early_exits": {
+        "name": "Early exits"
+      },
+      "absence_percentage": {
+        "name": "Absence percentage"
+      },
+      "homework": {
+        "name": "Homework and tests"
+      },
+      "annotations": {
+        "name": "Annotations"
+      },
+      "disciplinary_notes": {
+        "name": "Disciplinary notes"
+      },
+      "last_topics": {
+        "name": "Latest topics"
+      },
+      "last_update": {
+        "name": "Last update"
+      }
     }
   }
 }

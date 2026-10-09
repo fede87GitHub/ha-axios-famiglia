@@ -23,12 +23,43 @@
       "already_configured": "Account già configurato"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni di Axios Famiglia",
+        "description": "Puoi modificare queste impostazioni in qualsiasi momento. Quando salvi, l'integrazione si ricarica.",
+        "data": {
+          "scan_interval": "Intervallo di aggiornamento (minuti)",
+          "register_days": "Giorni di registro da leggere",
+          "communications_limit": "Comunicazioni da mostrare",
+          "request_timeout": "Timeout delle richieste (secondi)"
+        },
+        "data_description": {
+          "scan_interval": "Ogni quanto viene interrogato il portale. Minimo 5 minuti, per non sovraccaricarlo.",
+          "register_days": "Quanti giorni recenti del registro di classe vengono usati per compiti, verifiche, annotazioni, note e argomenti (da 1 a 90).",
+          "communications_limit": "Quante tra le ultime comunicazioni compaiono nell'elenco del sensore, nel calendario e nell'evento novità (da 1 a 50).",
+          "request_timeout": "Attesa massima per ogni richiesta al portale (da 10 a 120 secondi)."
+        }
+      }
+    }
+  },
   "entity": {
     "calendar": {
-      "absences": { "name": "Assenze e uscite" },
-      "homework": { "name": "Compiti e verifiche" },
-      "annotations": { "name": "Annotazioni e note" },
-      "communications": { "name": "Comunicazioni" }
+      "absences": {
+        "name": "Assenze e uscite"
+      },
+      "homework": {
+        "name": "Compiti e verifiche"
+      },
+      "annotations": {
+        "name": "Annotazioni e note"
+      },
+      "communications": {
+        "name": "Comunicazioni"
+      },
+      "topics": {
+        "name": "Argomenti"
+      }
     },
     "event": {
       "news": {
@@ -48,16 +79,39 @@
       }
     },
     "sensor": {
-      "communications": { "name": "Comunicazioni" },
-      "communications_unread": { "name": "Comunicazioni non lette" },
-      "absences": { "name": "Assenze" },
-      "late_entries": { "name": "Ritardi" },
-      "early_exits": { "name": "Uscite anticipate" },
-      "absence_percentage": { "name": "Percentuale assenze" },
-      "homework": { "name": "Compiti e verifiche" },
-      "annotations": { "name": "Annotazioni" },
-      "disciplinary_notes": { "name": "Note disciplinari" },
-      "last_update": { "name": "Ultimo aggiornamento" }
+      "communications": {
+        "name": "Comunicazioni"
+      },
+      "communications_unread": {
+        "name": "Comunicazioni non lette"
+      },
+      "absences": {
+        "name": "Assenze"
+      },
+      "late_entries": {
+        "name": "Ritardi"
+      },
+      "early_exits": {
+        "name": "Uscite anticipate"
+      },
+      "absence_percentage": {
+        "name": "Percentuale assenze"
+      },
+      "homework": {
+        "name": "Compiti e verifiche"
+      },
+      "annotations": {
+        "name": "Annotazioni"
+      },
+      "disciplinary_notes": {
+        "name": "Note disciplinari"
+      },
+      "last_topics": {
+        "name": "Ultimi argomenti"
+      },
+      "last_update": {
+        "name": "Ultimo aggiornamento"
+      }
     }
   }
 }

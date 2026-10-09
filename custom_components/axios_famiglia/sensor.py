@@ -13,12 +13,33 @@ from homeassistant.util import slugify
 
 from .const import DOMAIN
 from .coordinator import AxiosFamigliaCoordinator
+from .items import latest_topics
 
 
 @dataclass(frozen=True, kw_only=True)
 class AxiosSensorDescription(SensorEntityDescription):
     value_fn: Callable[[dict], Any]
     attrs_fn: Callable[[dict], dict[str, Any]] | None = None
+
+
+def _without_topics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Gli argomenti svolti sono lunghi: restano fuori dagli attributi (limite del recorder).
+
+    Si leggono nel calendario "Argomenti" e nel sensore "Ultimi argomenti".
+    """
+    return [{key: value for key, value in row.items() if key != "topics"} for row in rows]
+
+
+def _latest_topics_value(data: dict) -> str | None:
+    latest = latest_topics(data)
+    return latest["date"] if latest else None
+
+
+def _latest_topics_attrs(data: dict) -> dict[str, Any]:
+    latest = latest_topics(data)
+    if not latest:
+        return {}
+    return {"data_iso": latest["iso"], "argomenti": latest["topics"]}
 
 
 # I nomi visualizzati vengono da translations/<lingua>.json (entity.sensor.<key>.name)
@@ -64,19 +85,24 @@ DESCRIPTIONS: tuple[AxiosSensorDescription, ...] = (
         value_fn=lambda d: d["register"]["homework_count"],
         attrs_fn=lambda d: {
             "giorni_considerati": d["register"]["window_days"],
-            "elenco": d["register"]["homework"],
+            "elenco": _without_topics(d["register"]["homework"]),
         },
     ),
     AxiosSensorDescription(
         key="annotations", translation_key="annotations", icon="mdi:note-text",
         value_fn=lambda d: d["register"]["annotation_count"],
-        attrs_fn=lambda d: {"elenco": d["register"]["annotations"]},
+        attrs_fn=lambda d: {"elenco": _without_topics(d["register"]["annotations"])},
     ),
     AxiosSensorDescription(
         key="disciplinary_notes", translation_key="disciplinary_notes",
         icon="mdi:alert",
         value_fn=lambda d: d["register"]["disciplinary_note_count"],
-        attrs_fn=lambda d: {"elenco": d["register"]["disciplinary_notes"]},
+        attrs_fn=lambda d: {"elenco": _without_topics(d["register"]["disciplinary_notes"])},
+    ),
+    AxiosSensorDescription(
+        key="last_topics", translation_key="last_topics", icon="mdi:book-open-variant",
+        value_fn=_latest_topics_value,
+        attrs_fn=_latest_topics_attrs,
     ),
     AxiosSensorDescription(
         key="last_update", translation_key="last_update", icon="mdi:update",
