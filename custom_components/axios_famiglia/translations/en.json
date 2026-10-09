@@ -24,6 +24,29 @@
     }
   },
   "entity": {
+    "calendar": {
+      "absences": { "name": "Absences and exits" },
+      "homework": { "name": "Homework and tests" },
+      "annotations": { "name": "Annotations and notes" },
+      "communications": { "name": "Communications" }
+    },
+    "event": {
+      "news": {
+        "name": "News",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_communication": "New communication",
+              "new_absence_event": "New absence entry",
+              "new_homework": "New homework",
+              "new_test": "New test",
+              "new_annotation": "New annotation",
+              "new_disciplinary_note": "New disciplinary note"
+            }
+          }
+        }
+      }
+    },
     "sensor": {
       "communications": { "name": "Communications" },
       "communications_unread": { "name": "Unread communications" },

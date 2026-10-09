@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Collega Axios Famiglia",
-		"description": "Aggiungi una voce per ogni studente. Il nome dello studente è usato come prefisso per dispositivo ed entità (ad esempio sensor.axios_mario_absences).",
+        "description": "Aggiungi una voce per ogni studente. Il nome dello studente è usato come prefisso per dispositivo ed entità (ad esempio sensor.axios_mario_absences).",
         "data": {
           "student_name": "Nome dello studente",
           "customer_id": "Codice fiscale della scuola/cliente (CF)",
@@ -24,6 +24,29 @@
     }
   },
   "entity": {
+    "calendar": {
+      "absences": { "name": "Assenze e uscite" },
+      "homework": { "name": "Compiti e verifiche" },
+      "annotations": { "name": "Annotazioni e note" },
+      "communications": { "name": "Comunicazioni" }
+    },
+    "event": {
+      "news": {
+        "name": "Novità",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_communication": "Nuova comunicazione",
+              "new_absence_event": "Nuova voce in Assenze",
+              "new_homework": "Nuovi compiti",
+              "new_test": "Nuova verifica",
+              "new_annotation": "Nuova annotazione",
+              "new_disciplinary_note": "Nuova nota disciplinare"
+            }
+          }
+        }
+      }
+    },
     "sensor": {
       "communications": { "name": "Comunicazioni" },
       "communications_unread": { "name": "Comunicazioni non lette" },

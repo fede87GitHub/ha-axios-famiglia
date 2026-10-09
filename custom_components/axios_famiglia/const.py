@@ -35,4 +35,4 @@ AJAX_PATH = "/Pages/APP/APP_Ajax_Get.aspx"
 # anti-CSRF tutti corretti.
 DASHBOARD_INIT_ACTIONS = ["HeaderLoad", "FooterLoad", "DashboardLoad"]
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "calendar", "event"]
