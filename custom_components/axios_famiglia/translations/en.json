@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Axios Famiglia",
+        "description": "Add one entry per student. The student name is used as prefix for device and entities (e.g. sensor.axios_<name>_absences).",
+        "data": {
+          "student_name": "Student name",
+          "customer_id": "School/customer tax code (CF)",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to Axios",
+      "invalid_auth": "Invalid credentials",
+      "invalid_name": "Enter a valid student name",
+      "rvt_not_found": "Login succeeded but a required security token could not be found. Check the Home Assistant logs for details and report an issue.",
+      "init_sequence_failed": "Login succeeded but a required initialization step failed. Check the Home Assistant logs for details (search for 'dashboard init call') and report an issue."
+    },
+    "abort": {
+      "already_configured": "Account already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "communications": { "name": "Communications" },
+      "communications_unread": { "name": "Unread communications" },
+      "absences": { "name": "Absences" },
+      "late_entries": { "name": "Late entries" },
+      "early_exits": { "name": "Early exits" },
+      "absence_percentage": { "name": "Absence percentage" },
+      "homework": { "name": "Homework and tests" },
+      "annotations": { "name": "Annotations" },
+      "disciplinary_notes": { "name": "Disciplinary notes" },
+      "last_update": { "name": "Last update" }
+    }
+  }
+}
