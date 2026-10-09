@@ -4,7 +4,7 @@
   <img src="custom_components/axios_famiglia/brand/icon@2x.png" alt="Axios Famiglia" width="128">
 </p>
 
-Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.io/) che legge i dati del registro elettronico **Axios Famiglia** (portale `registrofamiglie.axioscloud.it`) e li espone come sensori: comunicazioni, assenze, ritardi, compiti e verifiche, annotazioni e note disciplinari.
+Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.io/) che legge i dati del registro elettronico **Axios Famiglia** (portale `registrofamiglie.axioscloud.it`) e li espone come sensori, calendari ed eventi per le notifiche: comunicazioni, assenze, ritardi, compiti e verifiche, annotazioni e note disciplinari.
 
 [![Validate](https://github.com/fede87GitHub/ha-axios-famiglia/actions/workflows/validate.yml/badge.svg)](https://github.com/fede87GitHub/ha-axios-famiglia/actions/workflows/validate.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
@@ -16,11 +16,16 @@ Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.i
 - Accesso con le stesse credenziali del portale famiglie.
 - Una voce di configurazione **per ogni studente**, ciascuna con il proprio dispositivo e le proprie entità.
 - Aggiornamento automatico ogni **30 minuti**.
+- **Sensori** con i conteggi e gli elenchi principali.
+- **Quattro calendari** separati: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni.
+- **Entità evento** che scatta a ogni novità, pronta per le notifiche.
 - Interfaccia e nomi delle entità in **italiano** e **inglese**.
 
-## Sensori
+## Entità
 
-Per ogni studente vengono create queste entità. Il prefisso è `sensor.axios_<nome_studente>_`.
+Per ogni studente vengono create queste entità. Il prefisso è `<dominio>.axios_<nome_studente>_`.
+
+### Sensori
 
 | Entità (suffisso) | Valore | Attributi principali |
 |---|---|---|
@@ -37,7 +42,58 @@ Per ogni studente vengono create queste entità. Il prefisso è `sensor.axios_<n
 
 Compiti, annotazioni e note disciplinari si riferiscono agli **ultimi 14 giorni** del registro di classe, non a tutto l'anno scolastico.
 
-Esempio: per uno studente chiamato "Mario" ottieni `sensor.axios_mario_communications_unread`, `sensor.axios_mario_absences`, `sensor.axios_mario_homework` e così via.
+### Calendari
+
+Le voci compaiono come eventi di un'intera giornata.
+
+| Entità | Contenuto | Giorno dell'evento |
+|---|---|---|
+| `calendar.axios_<nome>_absences` | Assenze, ritardi e uscite anticipate | data della voce in Assenze |
+| `calendar.axios_<nome>_homework` | Compiti e verifiche | giorno della riga di registro |
+| `calendar.axios_<nome>_annotations` | Annotazioni e note disciplinari | giorno della riga di registro |
+| `calendar.axios_<nome>_communications` | Comunicazioni (ultime 20) | data di pubblicazione |
+
+I compiti compaiono nel giorno della riga di registro in cui sono inseriti, non nella data di scadenza.
+
+### Evento per le notifiche
+
+`event.axios_<nome_studente>_news` scatta quando compare una novità. Tipi di evento:
+
+| `event_type` | Quando scatta |
+|---|---|
+| `new_communication` | Nuova comunicazione |
+| `new_absence_event` | Nuova voce in Assenze (assenza, ritardo, uscita) |
+| `new_homework` | Nuovi compiti |
+| `new_test` | Nuova verifica |
+| `new_annotation` | Nuova annotazione |
+| `new_disciplinary_note` | Nuova nota disciplinare |
+
+Gli attributi dell'evento includono `student`, `date`, i dettagli della voce (`title`, `author`, `description`, `text`, a seconda del tipo) e `message`, un testo già pronto per la notifica, in italiano o inglese secondo la lingua di Home Assistant.
+
+Dettagli sul funzionamento:
+
+- L'entità mostra **`unknown` finché non scatta il primo evento**: è normale. Dopo il primo evento ricorda l'ultimo anche dopo i riavvii.
+- Alla **prima installazione** le voci già presenti vengono memorizzate **senza notifiche**, per non ricevere decine di avvisi insieme.
+- Le voci già viste sono salvate su disco: dopo un riavvio di Home Assistant vengono notificate solo le novità vere.
+- Se una voce viene modificata sul portale (ad esempio il testo di un compito), viene notificata come nuova.
+
+Esempio di automazione:
+
+```yaml
+alias: Axios - notifica novità
+description: ""
+triggers:
+  - trigger: state
+    entity_id: event.axios_mario_news
+actions:
+  - action: notify.notify
+    data:
+      title: "Axios {{ trigger.to_state.attributes.student }}"
+      message: "{{ trigger.to_state.attributes.message }}"
+mode: queued
+```
+
+Per filtrare un solo tipo di novità aggiungi una condizione, ad esempio `{{ trigger.to_state.attributes.event_type == 'new_test' }}`.
 
 ## Installazione
 
