@@ -14,7 +14,15 @@ Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.i
 
 ![Pannello Axios Famiglia, tema scuro](https://raw.githubusercontent.com/fede87GitHub/ha-axios-famiglia/main/docs/images/home-dark.png)
 
-<sub>Le schermate di questa documentazione usano dati di esempio inventati.</sub>
+<sub>Le schermate di questa documentazione usano dati di esempio inventati. Quella del calendario è un'illustrazione della pagina di Home Assistant.</sub>
+
+### Anche nel calendario di Home Assistant
+
+Cinque calendari separati, uno per ogni tipo di voce: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni, argomenti svolti.
+
+![I cinque calendari nella pagina Calendario di Home Assistant](https://raw.githubusercontent.com/fede87GitHub/ha-axios-famiglia/main/docs/images/calendar-dark.png)
+
+Dettagli e tema chiaro in [Entità](https://github.com/fede87GitHub/ha-axios-famiglia/blob/main/docs/entita.md#calendari).
 
 ## Cosa offre
 

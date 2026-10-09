@@ -44,6 +44,33 @@ Le voci compaiono come eventi di un'intera giornata.
 - Nel calendario *Argomenti* il titolo mostra l'inizio del testo e la descrizione dell'evento contiene tutti gli argomenti del giorno. I giorni senza argomenti non hanno eventi.
 - Nel calendario *Comunicazioni* la descrizione riporta tipo, autore e titolo.
 
+### Come appaiono nella pagina Calendario
+
+Ogni calendario compare nella pagina **Calendario** di Home Assistant con il nome del dispositivo seguito dal nome del calendario, per esempio *Axios Mario Compiti e verifiche*. Le caselle nell'elenco a sinistra mostrano o nascondono i singoli calendari.
+
+![I cinque calendari nella pagina Calendario di Home Assistant, tema scuro](images/calendar-dark.png)
+
+<details>
+<summary>Tema chiaro</summary>
+
+![I cinque calendari nella pagina Calendario di Home Assistant, tema chiaro](images/calendar-light.png)
+
+</details>
+
+<sub>Illustrazione della pagina Calendario con dati di esempio. L'aspetto reale, compresi i colori assegnati a ogni calendario, dipende dalla versione di Home Assistant e dal tema che usi.</sub>
+
+Il titolo di ogni evento dipende dal calendario:
+
+| Calendario | Titolo dell'evento |
+|---|---|
+| Assenze e uscite | La descrizione della voce, per esempio `Uscita [12:10] Motivi familiari` |
+| Compiti e verifiche | `Compiti: ...` oppure `Verifica: ...` |
+| Annotazioni e note | `Annotazione: ...` oppure `Nota disciplinare: ...` |
+| Comunicazioni | Il titolo della comunicazione |
+| Argomenti | `Argomenti: ...`, con l'inizio del testo |
+
+Nella vista mensile i titoli lunghi vengono troncati: aprendo l'evento si legge il testo completo nella descrizione. Nell'esempio le voci di compiti, annotazioni e argomenti sono presenti solo per gli ultimi 14 giorni, perché è la finestra di registro predefinita (vedi [opzioni](configurazione.md#opzioni)); assenze e comunicazioni risalgono più indietro.
+
 ## Evento delle novità
 
 | Entità | Contenuto |
