@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Collega Axios Famiglia",
-        "description": "Aggiungi una voce per ogni studente. Il nome dello studente è usato come prefisso per dispositivo ed entità (es. sensor.axios_<nome>_absences).",
+		"description": "Aggiungi una voce per ogni studente. Il nome dello studente è usato come prefisso per dispositivo ed entità (ad esempio sensor.axios_mario_absences).",
         "data": {
           "student_name": "Nome dello studente",
           "customer_id": "Codice fiscale della scuola/cliente (CF)",

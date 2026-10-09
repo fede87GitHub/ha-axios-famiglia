@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect Axios Famiglia",
-        "description": "Add one entry per student. The student name is used as prefix for device and entities (e.g. sensor.axios_<name>_absences).",
+        "description": "Add one entry per student. The student name is used as a prefix for the device and entities (for example sensor.axios_mario_absences).",
         "data": {
           "student_name": "Student name",
           "customer_id": "School/customer tax code (CF)",
