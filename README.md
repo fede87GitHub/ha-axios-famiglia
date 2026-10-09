@@ -20,7 +20,7 @@ Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.i
 - **Sensori** con i conteggi e gli elenchi principali.
 - **Cinque calendari** separati: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni, argomenti svolti.
 - **Entità evento** che scatta a ogni novità, pronta per le notifiche.
-- **Pannello "Axios Famiglia"** nella barra laterale, con tema chiaro e scuro e un selettore per gli studenti.
+- **Pannello "Axios Famiglia"** nella barra laterale, con tema chiaro e scuro, impostazioni di tema e lingua e un selettore per gli studenti.
 - Interfaccia e nomi delle entità in **italiano** e **inglese**.
 
 ## Pannello nella barra laterale
@@ -28,10 +28,22 @@ Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.i
 Dopo l'installazione compare la voce **Axios Famiglia** nella barra laterale di Home Assistant. Non serve nessuna configurazione né nessun file YAML.
 
 - **Home:** numeri principali, un riquadro per ogni studente e un widget per ogni sezione (comunicazioni, compiti, verifiche, annotazioni, note disciplinari, assenze, ritardi, uscite, percentuale di assenze, argomenti). I widget che richiedono attenzione, come comunicazioni non lette e note disciplinari, sono evidenziati.
-- **Schede in basso:** Comunicazioni, Agenda (compiti e verifiche), Argomenti, Assenze, Annotazioni.
+- **Barra in basso:** sempre visibile e con icone colorate. Le sezioni sono Comunicazioni, Compiti e verifiche, Argomenti, Assenze e uscite, Annotazioni e note. Il titolo della pagina è sempre uguale al nome della voce nella barra, in italiano e in inglese.
 - **Più studenti:** il selettore in alto cambia studente e il pannello ricorda l'ultimo scelto su quel dispositivo.
-- **Tema:** segue il tema chiaro o scuro di Home Assistant.
 - **Indicatore di stato:** il pallino in alto è verde se i dati sono aggiornati, arancione se non lo sono da più di 6 ore, rosso se le entità non sono disponibili.
+
+### Impostazioni del pannello
+
+L'icona a cursori in alto a destra apre le impostazioni:
+
+| Impostazione | Valori |
+|---|---|
+| **Tema** | Sistema, Chiaro, Scuro |
+| **Lingua** | Sistema, English, Italiano |
+
+- **Sistema** per il tema segue il tema chiaro o scuro di Home Assistant. Per la lingua segue la lingua del tuo profilo di Home Assistant.
+- Le preferenze sono salvate nel browser: valgono **solo per quel dispositivo** e non cambiano il profilo di Home Assistant.
+- Gli amministratori trovano nelle impostazioni anche il collegamento alle **opzioni dell'integrazione**.
 
 Il pannello **non ha un proprio accesso al portale**: legge solo le entità dell'integrazione (`sensor`, `calendar`, `event` con prefisso `axios_<nome>_`). Per questo gli argomenti di tutti i giorni arrivano dal calendario **Argomenti**.
 
@@ -182,6 +194,8 @@ Se **aumenti** i giorni di registro o il numero di comunicazioni, le voci più v
 
 **Il pannello è vuoto o mostra "–".** Controlla che le entità `sensor.axios_<nome>_*` esistano e non siano `unavailable`. Se hai cambiato a mano l'ID di un'entità, il pannello non la trova più perché costruisce i nomi dal prefisso.
 
+**Dopo un aggiornamento il pannello sembra vecchio.** Ricarica la pagina senza cache (Ctrl+F5).
+
 Per abilitare i log di debug aggiungi a `configuration.yaml`:
 
 ```yaml
@@ -199,6 +213,7 @@ Quando apri una issue **non incollare mai** password, cookie, token o catture di
 - Ogni voce di configurazione gestisce un solo accesso al portale.
 - Del registro di classe sono considerati solo gli ultimi giorni scelti nelle opzioni (al massimo 90).
 - Il pannello trova le entità dal loro ID standard: se lo rinomini, il pannello non le legge.
+- Tema e lingua del pannello sono salvati per dispositivo e non si sincronizzano tra dispositivi diversi.
 
 ## Contribuire
 

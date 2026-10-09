@@ -6,9 +6,12 @@
 
 const WS_STUDENTS = "axios_famiglia/students";
 const STORE_KEY = "axios_famiglia_student";
+const PREFS_KEY = "axios_famiglia_prefs";
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // dati "non recenti" dopo 6 ore
 const MONTHS_IT = { gen: 0, feb: 1, mar: 2, apr: 3, mag: 4, giu: 5, lug: 6, ago: 7, set: 8, ott: 9, nov: 10, dic: 11 };
 
+// I nomi delle sezioni (tab.*) servono sia per la barra in basso sia per il titolo della pagina:
+// una sola fonte, cosi' restano sempre uguali.
 const TEXT = {
   it: {
     title: "AXIOS FAMIGLIA", subtitle: "REGISTRO ELETTRONICO",
@@ -16,15 +19,18 @@ const TEXT = {
     sections: (n) => `${n} sezioni`, attention: "richiedono attenzione", allOk: "tutto in ordine",
     updated: "Aggiornato", stale: "Non aggiornato", unavailable: "Non disponibile",
     loading: "Caricamento…", noStudents: "Nessuno studente configurato.",
-    empty: "Nessuna voce da mostrare.", settings: "Impostazioni", menu: "Menu",
-    tab: { home: "HOME", comm: "COMUNICAZIONI", agenda: "AGENDA", topics: "ARGOMENTI", absences: "ASSENZE", notes: "ANNOTAZIONI" },
+    empty: "Nessuna voce da mostrare.", menu: "Menu",
+    settings: "Impostazioni", close: "Chiudi", theme: "TEMA", language: "LINGUA",
+    system: "Sistema", light: "Chiaro", dark: "Scuro",
+    integration: "Opzioni dell'integrazione",
+    deviceOnly: "Le preferenze valgono solo per questo dispositivo.",
+    tab: { home: "HOME", comm: "COMUNICAZIONI", agenda: "COMPITI E VERIFICHE", topics: "ARGOMENTI", absences: "ASSENZE E USCITE", notes: "ANNOTAZIONI E NOTE" },
     tile: { comm: "COMUNICAZIONI", homework: "COMPITI", tests: "VERIFICHE", annotations: "ANNOTAZIONI", notes: "NOTE DISCIPLINARI", absences: "ASSENZE", late: "RITARDI", exits: "USCITE ANTICIPATE", pct: "% ASSENZE", topics: "ARGOMENTI" },
     chip: { comm: "NON LETTE", homework: "COMPITI", tests: "VERIFICHE", annotations: "ANNOTAZIONI", notes: "NOTE DISCIPLINARI" },
-    unreadOf: (t) => `non lette su ${t}`, allRead: "tutte lette", none: "nessuna", noneF: "nessuna",
+    unreadOf: (t) => `non lette su ${t}`, allRead: "tutte lette", none: "nessuna",
     lastDays: (n) => `ultimi ${n} giorni`, totalAbs: "totali", sinceStart: "dall'inizio",
     tag: { homework: "COMPITI", test: "VERIFICA", annotation: "ANNOTAZIONE", note: "NOTA DISCIPLINARE", absence: "ASSENZA", late: "RITARDO", exit: "USCITA" },
     notCounted: "non conteggiata", unread: "NON LETTA", by: "di",
-    viewTitle: { comm: "COMUNICAZIONI", agenda: "COMPITI E VERIFICHE", topics: "ARGOMENTI SVOLTI", absences: "ASSENZE, RITARDI E USCITE", notes: "ANNOTAZIONI E NOTE" },
   },
   en: {
     title: "AXIOS FAMIGLIA", subtitle: "SCHOOL REGISTER",
@@ -32,15 +38,18 @@ const TEXT = {
     sections: (n) => `${n} sections`, attention: "need attention", allOk: "all good",
     updated: "Up to date", stale: "Outdated", unavailable: "Unavailable",
     loading: "Loading…", noStudents: "No student configured.",
-    empty: "Nothing to show.", settings: "Settings", menu: "Menu",
-    tab: { home: "HOME", comm: "MESSAGES", agenda: "AGENDA", topics: "TOPICS", absences: "ABSENCES", notes: "NOTES" },
-    tile: { comm: "COMMUNICATIONS", homework: "HOMEWORK", tests: "TESTS", annotations: "ANNOTATIONS", notes: "DISCIPLINARY NOTES", absences: "ABSENCES", late: "LATE ENTRIES", exits: "EARLY EXITS", pct: "% ABSENCES", topics: "TOPICS" },
+    empty: "Nothing to show.", menu: "Menu",
+    settings: "Settings", close: "Close", theme: "THEME", language: "LANGUAGE",
+    system: "System", light: "Light", dark: "Dark",
+    integration: "Integration options",
+    deviceOnly: "Preferences apply to this device only.",
+    tab: { home: "HOME", comm: "COMMUNICATIONS", agenda: "HOMEWORK AND TESTS", topics: "LESSON TOPICS", absences: "ABSENCES AND EXITS", notes: "ANNOTATIONS AND NOTES" },
+    tile: { comm: "COMMUNICATIONS", homework: "HOMEWORK", tests: "TESTS", annotations: "ANNOTATIONS", notes: "DISCIPLINARY NOTES", absences: "ABSENCES", late: "LATE ENTRIES", exits: "EARLY EXITS", pct: "% ABSENCES", topics: "LESSON TOPICS" },
     chip: { comm: "UNREAD", homework: "HOMEWORK", tests: "TESTS", annotations: "ANNOTATIONS", notes: "DISCIPLINARY NOTES" },
-    unreadOf: (t) => `unread of ${t}`, allRead: "all read", none: "none", noneF: "none",
+    unreadOf: (t) => `unread of ${t}`, allRead: "all read", none: "none",
     lastDays: (n) => `last ${n} days`, totalAbs: "total", sinceStart: "since the start",
     tag: { homework: "HOMEWORK", test: "TEST", annotation: "ANNOTATION", note: "DISCIPLINARY NOTE", absence: "ABSENCE", late: "LATE", exit: "EARLY EXIT" },
     notCounted: "not counted", unread: "UNREAD", by: "by",
-    viewTitle: { comm: "COMMUNICATIONS", agenda: "HOMEWORK AND TESTS", topics: "LESSON TOPICS", absences: "ABSENCES, LATE ENTRIES AND EXITS", notes: "ANNOTATIONS AND NOTES" },
   },
 };
 
@@ -60,12 +69,28 @@ const ICONS = {
   percent: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.2"/><circle cx="17" cy="17" r="2.2"/>',
   openbook: '<path d="M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2z"/><path d="M22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.5"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.7 6.7 0 0 0 9.8 9.8z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  ext: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
 };
 
 const COLORS = {
   blue: "#2f80ed", orange: "#f08a24", purple: "#8b5cf6", pink: "#e8478b", yellow: "#d9a406",
   red: "#e5484d", green: "#18a058", teal: "#0ea5b7", indigo: "#4f5bd5", slate: "#64748b",
 };
+
+// Barra in basso: [vista, icona, colore]
+const NAV = [
+  ["home", "home", "teal"],
+  ["comm", "megaphone", "orange"],
+  ["agenda", "book", "purple"],
+  ["topics", "openbook", "indigo"],
+  ["absences", "calx", "blue"],
+  ["notes", "note", "yellow"],
+];
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -100,14 +125,21 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._topicsFail = {};
     this._topicsVersion = 0;
     this._clock = null;
+    this._settingsOpen = false;
+    this._prefs = this._loadPrefs();
+    this._onKey = (e) => {
+      if (e.key === "Escape" && this._settingsOpen) { this._settingsOpen = false; this._render(false); }
+    };
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
   }
 
   connectedCallback() {
     this._clock = setInterval(() => this._tick(), 20000);
+    document.addEventListener("keydown", this._onKey);
   }
   disconnectedCallback() {
     clearInterval(this._clock);
+    document.removeEventListener("keydown", this._onKey);
   }
 
   set narrow(v) { this.classList.toggle("narrow", !!v); }
@@ -116,12 +148,33 @@ class AxiosFamigliaPanel extends HTMLElement {
   set hass(h) {
     const first = !this._hass;
     this._hass = h;
-    this.classList.toggle("dark", !!(h.themes && h.themes.darkMode));
+    this._applyTheme();
     if (first) this._init();
     else this._maybeRender();
   }
 
-  get _lang() { return (this._hass?.language || "en").toLowerCase().startsWith("it") ? "it" : "en"; }
+  // ---------- preferenze (tema e lingua), salvate per dispositivo ----------
+  _loadPrefs() {
+    const out = { theme: "system", lang: "system" };
+    try {
+      const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+      if (["system", "light", "dark"].includes(raw.theme)) out.theme = raw.theme;
+      if (["system", "en", "it"].includes(raw.lang)) out.lang = raw.lang;
+    } catch (_e) { /* ignora */ }
+    return out;
+  }
+  _savePrefs() {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(this._prefs)); } catch (_e) { /* ignora */ }
+  }
+  _applyTheme() {
+    const p = this._prefs.theme;
+    const dark = p === "dark" || (p === "system" && !!(this._hass && this._hass.themes && this._hass.themes.darkMode));
+    this.classList.toggle("dark", dark);
+  }
+  get _lang() {
+    const l = this._prefs.lang === "system" ? (this._hass?.language || "en") : this._prefs.lang;
+    return String(l).toLowerCase().startsWith("it") ? "it" : "en";
+  }
   get _loc() { return this._lang === "it" ? "it-IT" : "en-GB"; }
   _t() { return TEXT[this._lang]; }
 
@@ -272,9 +325,19 @@ class AxiosFamigliaPanel extends HTMLElement {
   _onClick(ev) {
     const el = ev.target.closest("[data-act]");
     if (!el) return;
-    const { act, val } = el.dataset;
+    const { act, val, group } = el.dataset;
     if (act === "menu") this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
-    else if (act === "settings") {
+    else if (act === "settings") { this._settingsOpen = true; this._render(false); }
+    else if (act === "close") { this._settingsOpen = false; this._render(false); }
+    else if (act === "pref") {
+      if (group !== "theme" && group !== "lang") return;
+      this._prefs = { ...this._prefs, [group]: val };
+      this._savePrefs();
+      this._applyTheme();
+      this._render(false);
+    } else if (act === "integration") {
+      this._settingsOpen = false;
+      this._render(false);
       history.pushState(null, "", "/config/integrations/integration/axios_famiglia");
       window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
     } else if (act === "view") { this._view = val; this._render(true, true); }
@@ -319,7 +382,7 @@ class AxiosFamigliaPanel extends HTMLElement {
             <button class="iconbtn" data-act="menu" aria-label="${t.menu}">${this._icon("menu", 20)}</button>
             <div class="ttl"><h1>${t.title}</h1><small>${t.subtitle}</small></div>
             <div class="right"><span class="dot ${status}" title="${esc(statusText)}"></span>
-              ${isAdmin ? `<button class="iconbtn ghost" data-act="settings" aria-label="${t.settings}">${this._icon("sliders", 19)}</button>` : ""}</div>
+              <button class="iconbtn ghost" data-act="settings" aria-label="${t.settings}">${this._icon("sliders", 19)}</button></div>
           </div>
           <div class="bar">
             <div class="schips">${this._students.map((s) => `<button class="schip ${s.slug === this._student ? "on" : ""}" data-act="student" data-val="${esc(s.slug)}">${esc(s.name)}</button>`).join("")}</div>
@@ -329,7 +392,7 @@ class AxiosFamigliaPanel extends HTMLElement {
         ${body}
       </div></div>
       ${this._nav()}
-    </div>`;
+    </div>${this._settingsSheet(isAdmin)}`;
   }
 
   _tiles(m) {
@@ -432,28 +495,56 @@ class AxiosFamigliaPanel extends HTMLElement {
           ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
         </div></div>`;
     }).join("");
-    return `<div class="sec">${t.viewTitle[this._view]}</div>${rows || `<div class="card empty">${t.empty}</div>`}`;
+    // Il titolo e' lo stesso testo della voce nella barra in basso
+    return `<div class="sec">${t.tab[this._view]}</div>${rows || `<div class="card empty">${t.empty}</div>`}`;
   }
 
   _nav() {
     const t = this._t();
-    const tabs = [["home", "home"], ["comm", "megaphone"], ["agenda", "book"], ["topics", "openbook"], ["absences", "calx"], ["notes", "note"]];
-    return `<nav class="navwrap"><div class="nav card">${tabs.map(([k, ic]) => `
-      <button class="tab ${this._view === k ? "on" : ""}" data-act="view" data-val="${k}">${this._icon(ic, 22)}<span>${t.tab[k]}</span></button>`).join("")}</div></nav>`;
+    return `<nav class="navwrap"><div class="nav card">${NAV.map(([k, ic, color]) => `
+      <button class="tab ${this._view === k ? "on" : ""}" data-act="view" data-val="${k}" style="--fg:${COLORS[color]}">
+        <span class="tb">${this._icon(ic, 21)}</span><span class="tn">${t.tab[k]}</span></button>`).join("")}</div></nav>`;
+  }
+
+  _settingsSheet(isAdmin) {
+    if (!this._settingsOpen) return "";
+    const t = this._t();
+    const p = this._prefs;
+    const opt = (group, value, inner, label) => `<button class="opt ${p[group] === value ? "on" : ""}" data-act="pref" data-group="${group}" data-val="${value}" aria-pressed="${p[group] === value}">${inner}<span>${label}</span></button>`;
+    return `<div class="overlay" role="dialog" aria-modal="true" aria-label="${esc(t.settings)}">
+      <div class="backdrop" data-act="close"></div>
+      <div class="sheet card">
+        <div class="shead"><h2>${t.settings}</h2><button class="iconbtn" data-act="close" aria-label="${t.close}">${this._icon("x", 18)}</button></div>
+        <div class="ssec">${t.theme}</div>
+        <div class="opts">
+          ${opt("theme", "system", this._icon("monitor", 20), t.system)}
+          ${opt("theme", "light", this._icon("sun", 20), t.light)}
+          ${opt("theme", "dark", this._icon("moon", 20), t.dark)}
+        </div>
+        <div class="ssec">${t.language}</div>
+        <div class="opts">
+          ${opt("lang", "system", this._icon("globe", 20), t.system)}
+          ${opt("lang", "en", '<b class="code">EN</b>', "English")}
+          ${opt("lang", "it", '<b class="code">IT</b>', "Italiano")}
+        </div>
+        ${isAdmin ? `<button class="linkrow" data-act="integration">${this._icon("sliders", 18)}<span>${t.integration}</span>${this._icon("ext", 16)}</button>` : ""}
+        <p class="hint">${t.deviceOnly}</p>
+      </div>
+    </div>`;
   }
 }
 
 const CSS = `
-:host{display:block;height:100%;--bg:#eef2f8;--card:#fff;--text:#16213a;--muted:#7a869f;--line:rgba(22,33,58,.07);--chip:#f1f4f9;--accent:#1b7a4f;
-  --shadow:0 1px 2px rgba(22,33,58,.04),0 10px 28px rgba(22,33,58,.08);--navon:#1b2437;
+:host{display:block;position:relative;height:100vh;height:100dvh;overflow:hidden;--bg:#eef2f8;--card:#fff;--text:#16213a;--muted:#7a869f;--line:rgba(22,33,58,.07);--chip:#f1f4f9;--accent:#1b7a4f;
+  --shadow:0 1px 2px rgba(22,33,58,.04),0 10px 28px rgba(22,33,58,.08);
   font-family:Inter,"Segoe UI",Roboto,system-ui,-apple-system,sans-serif;color:var(--text);background:var(--bg)}
 :host(.dark){--bg:#0d1424;--card:#172036;--text:#e9eefb;--muted:#8fa0bf;--line:rgba(233,238,251,.09);--chip:#202b45;--accent:#4ade99;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);--navon:#4ade99}
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35)}
 *{box-sizing:border-box}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-align:left;padding:0}
 .app{display:flex;flex-direction:column;height:100%}
-.scroll{flex:1;overflow-y:auto;padding:14px 14px 6px;-webkit-overflow-scrolling:touch}
-.wrap{max-width:1500px;margin:0 auto;padding-bottom:8px}
+.scroll{flex:1;min-height:0;overflow-y:auto;padding:14px 14px 6px;-webkit-overflow-scrolling:touch}
+.wrap{width:100%;padding-bottom:8px}
 .card{background:var(--card);border-radius:24px;box-shadow:var(--shadow)}
 .hero{padding:14px 16px 14px;margin-bottom:12px}
 .top{display:grid;grid-template-columns:56px 1fr 96px;align-items:center}
@@ -523,11 +614,27 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .txt b{font-weight:800}
 .meta{margin-top:5px;font-size:11px;font-weight:600;color:var(--muted)}
 .empty{padding:28px;text-align:center;color:var(--muted);font-weight:600}
-.navwrap{padding:4px 14px 14px}
+.navwrap{flex:0 0 auto;padding:4px 14px calc(14px + env(safe-area-inset-bottom,0px))}
 .nav{display:flex;gap:4px;padding:8px;overflow-x:auto;scrollbar-width:none;border-radius:26px}
-.tab{flex:1 0 auto;min-width:78px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:9px 10px;border-radius:18px;color:var(--muted);font-size:9.5px;font-weight:800;letter-spacing:.08em;white-space:nowrap}
-.tab.on{background:var(--navon);color:#fff;box-shadow:0 8px 18px rgba(27,36,55,.28)}
-:host(.dark) .tab.on{color:#0d1424}
+.tab{flex:1 0 auto;min-width:96px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 8px 9px;border-radius:18px;border:2px solid transparent;color:var(--muted);font-size:9.5px;font-weight:800;letter-spacing:.06em;text-align:center}
+.tb{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;color:var(--fg);background:color-mix(in srgb,var(--fg) 15%,var(--card))}
+.tn{max-width:116px;line-height:1.2}
+.tab.on{color:var(--text);background:color-mix(in srgb,var(--fg) 10%,var(--card));border-color:color-mix(in srgb,var(--fg) 50%,transparent)}
+.tab.on .tb{background:var(--fg);color:#fff}
+.overlay{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:14px}
+.backdrop{position:absolute;inset:0;background:rgba(10,16,30,.5);backdrop-filter:blur(3px)}
+.sheet{position:relative;width:min(440px,100%);max-height:100%;overflow-y:auto;padding:18px 18px 16px}
+.shead{display:flex;align-items:center;justify-content:space-between}
+.shead h2{margin:0;font-size:18px;font-weight:800}
+.ssec{margin:16px 2px 8px;font-size:10px;letter-spacing:.2em;font-weight:800;color:var(--muted)}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.opt{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px;border-radius:16px;background:var(--chip);border:2px solid transparent;font-size:12px;font-weight:700;color:var(--muted);text-align:center}
+.opt.on{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
+.opt .code{display:grid;place-items:center;width:20px;height:20px;font-size:12px;font-weight:800;letter-spacing:.03em}
+.linkrow{display:flex;align-items:center;gap:10px;width:100%;margin-top:18px;padding:12px 14px;border-radius:16px;background:var(--chip);font-size:13px;font-weight:700}
+.linkrow span{flex:1}
+.hint{margin:14px 2px 0;font-size:11px;font-weight:600;color:var(--muted)}
+:host(.narrow) .overlay{align-items:flex-end}
 :host(.narrow) .top{grid-template-columns:48px 1fr 70px}
 :host(.narrow) .ttl h1{font-size:19px}
 :host(.narrow) .person{width:100%}
