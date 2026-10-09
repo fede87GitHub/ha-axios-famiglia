@@ -4,7 +4,7 @@
   <img src="custom_components/axios_famiglia/brand/icon@2x.png" alt="Axios Famiglia" width="128">
 </p>
 
-Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.io/) che legge i dati del registro elettronico **Axios Famiglia** (portale `registrofamiglie.axioscloud.it`) e li espone come sensori, calendari ed eventi per le notifiche: comunicazioni, assenze, ritardi, compiti e verifiche, annotazioni, note disciplinari e argomenti svolti.
+Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.io/) che legge i dati del registro elettronico **Axios Famiglia** (portale `registrofamiglie.axioscloud.it`) e li espone come sensori, calendari, eventi per le notifiche e un **pannello dedicato nella barra laterale**: comunicazioni, assenze, ritardi, compiti e verifiche, annotazioni, note disciplinari e argomenti svolti.
 
 [![Validate](https://github.com/fede87GitHub/ha-axios-famiglia/actions/workflows/validate.yml/badge.svg)](https://github.com/fede87GitHub/ha-axios-famiglia/actions/workflows/validate.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
@@ -20,7 +20,22 @@ Integrazione **non ufficiale** per [Home Assistant](https://www.home-assistant.i
 - **Sensori** con i conteggi e gli elenchi principali.
 - **Cinque calendari** separati: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni, argomenti svolti.
 - **Entità evento** che scatta a ogni novità, pronta per le notifiche.
+- **Pannello "Axios Famiglia"** nella barra laterale, con tema chiaro e scuro e un selettore per gli studenti.
 - Interfaccia e nomi delle entità in **italiano** e **inglese**.
+
+## Pannello nella barra laterale
+
+Dopo l'installazione compare la voce **Axios Famiglia** nella barra laterale di Home Assistant. Non serve nessuna configurazione né nessun file YAML.
+
+- **Home:** numeri principali, un riquadro per ogni studente e un widget per ogni sezione (comunicazioni, compiti, verifiche, annotazioni, note disciplinari, assenze, ritardi, uscite, percentuale di assenze, argomenti). I widget che richiedono attenzione, come comunicazioni non lette e note disciplinari, sono evidenziati.
+- **Schede in basso:** Comunicazioni, Agenda (compiti e verifiche), Argomenti, Assenze, Annotazioni.
+- **Più studenti:** il selettore in alto cambia studente e il pannello ricorda l'ultimo scelto su quel dispositivo.
+- **Tema:** segue il tema chiaro o scuro di Home Assistant.
+- **Indicatore di stato:** il pallino in alto è verde se i dati sono aggiornati, arancione se non lo sono da più di 6 ore, rosso se le entità non sono disponibili.
+
+Il pannello **non ha un proprio accesso al portale**: legge solo le entità dell'integrazione (`sensor`, `calendar`, `event` con prefisso `axios_<nome>_`). Per questo gli argomenti di tutti i giorni arrivano dal calendario **Argomenti**.
+
+Per impostazione predefinita il pannello è visibile a **tutti gli utenti** di Home Assistant. Per limitarlo agli amministratori imposta `PANEL_REQUIRE_ADMIN = True` in `panel.py` e riavvia.
 
 ## Entità
 
@@ -44,7 +59,7 @@ Per ogni studente vengono create queste entità. Il prefisso è `<dominio>.axios
 
 Compiti, annotazioni, note disciplinari e argomenti si riferiscono agli **ultimi giorni** del registro di classe (14 di default, vedi Opzioni), non a tutto l'anno scolastico.
 
-Gli elenchi dei sensori non contengono gli argomenti svolti, perché sono testi lunghi e farebbero superare il limite di dimensione degli attributi salvati da Home Assistant. Gli argomenti si leggono nel calendario **Argomenti** e nel sensore **Ultimi argomenti**.
+Gli elenchi dei sensori non contengono gli argomenti svolti, perché sono testi lunghi e farebbero superare il limite di dimensione degli attributi salvati da Home Assistant. Gli argomenti si leggono nel calendario **Argomenti**, nel sensore **Ultimi argomenti** e nel pannello.
 
 `last_topics` mostra l'ultimo giorno del registro che ha argomenti, che non coincide necessariamente con oggi (nei weekend e nei giorni festivi non ce ne sono). Lo stato è la data come la scrive il portale, mentre gli argomenti sono nell'attributo `argomenti`.
 
@@ -163,6 +178,10 @@ Se **aumenti** i giorni di registro o il numero di comunicazioni, le voci più v
 | *Accesso riuscito ma un passaggio di inizializzazione è fallito* | Il login funziona ma una chiamata iniziale del portale ha dato errore. Controlla i log. |
 | *Token di sicurezza non trovato* | Il portale potrebbe aver cambiato struttura. Apri una issue. |
 
+**Il pannello non compare nella barra laterale.** Riavvia Home Assistant e ricarica la pagina senza cache (Ctrl+F5). Se la voce manca ancora, cerca nei log `could not register the sidebar panel`: i sensori funzionano comunque.
+
+**Il pannello è vuoto o mostra "–".** Controlla che le entità `sensor.axios_<nome>_*` esistano e non siano `unavailable`. Se hai cambiato a mano l'ID di un'entità, il pannello non la trova più perché costruisce i nomi dal prefisso.
+
 Per abilitare i log di debug aggiungi a `configuration.yaml`:
 
 ```yaml
@@ -179,6 +198,7 @@ Quando apri una issue **non incollare mai** password, cookie, token o catture di
 - Sono lette solo le sezioni Comunicazioni, Assenze e Registro di classe.
 - Ogni voce di configurazione gestisce un solo accesso al portale.
 - Del registro di classe sono considerati solo gli ultimi giorni scelti nelle opzioni (al massimo 90).
+- Il pannello trova le entità dal loro ID standard: se lo rinomini, il pannello non le legge.
 
 ## Contribuire
 
