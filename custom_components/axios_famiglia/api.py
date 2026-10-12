@@ -33,9 +33,28 @@ _DIAG_RESPONSE_HEADERS = (
     "x-aspnet-version", "content-length", "content-type", "date",
 )
 
+# --- Registro di classe ----------------------------------------------------
+# FAMILY_REGISTRO_CLASSE mostra solo la SETTIMANA CORRENTE. Le settimane precedenti
+# si leggono con FAMILY_REGISTRO_CLASSE_SETTIMANA, mandando nel corpo della richiesta
+# {"fdData": "<lunedi' della settimana, gg/mm/aaaa>"}.
+# Richiesta del browser (verificata con "Copy as fetch"):
+#   POST .../APP_Ajax_Get.aspx?Action=FAMILY_REGISTRO_CLASSE_SETTIMANA   (senza "&_=")
+#   content-type: application/x-www-form-urlencoded; charset=UTF-8
+#   body: {"fdData":"19/10/2026"}
+REGISTER_ACTION = "FAMILY_REGISTRO_CLASSE"
+REGISTER_WEEK_ACTION = "FAMILY_REGISTRO_CLASSE_SETTIMANA"
+WEEK_REQUEST_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
+# Le settimane piu' vecchie della precedente cambiano di rado: si rileggono ogni 6 ore.
+# La settimana precedente e quella corrente si leggono a ogni aggiornamento.
+OLD_WEEK_CACHE_SECONDS = 6 * 60 * 60
+
 
 def _diag_headers(headers) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() in _DIAG_RESPONSE_HEADERS}
+
+
+def _today() -> date:
+    return datetime.now().astimezone().date()
 
 
 class AxiosApiError(Exception):
@@ -83,6 +102,8 @@ class AxiosFamigliaClient:
       3. ROOT CAUSE of the empty HTTP 400: the dashboard initialization
          sequence (HeaderLoad, FooterLoad, DashboardLoad) must be replayed
          before the first FAMILY_* call (done in `login()`).
+      4. The class register page shows only the current week: previous weeks
+         are read one by one with FAMILY_REGISTRO_CLASSE_SETTIMANA.
     """
 
     _USER_AGENT = USER_AGENT
@@ -110,6 +131,9 @@ class AxiosFamigliaClient:
         self._logged_in = False
         self._dashboard_url: str | None = None
         self._rvt: str | None = None
+        # monday of the week -> (time of the reading, rows)
+        self._week_cache: dict[date, tuple[float, list[dict[str, Any]]]] = {}
+        self._weeks_warned = False
 
     def _ajax_headers(self) -> dict[str, str]:
         headers = {
@@ -159,9 +183,9 @@ class AxiosFamigliaClient:
         ) as response:
             location = response.headers.get("Location", "")
             if response.status not in (301, 302, 303) or DASHBOARD_PATH_HINT not in location:
-                body = (await response.text())[:500]
+                snippet = (await response.text())[:500]
                 raise AxiosAuthError(
-                    f"Login rejected (HTTP {response.status}); body={body!r}"
+                    f"Login rejected (HTTP {response.status}); body={snippet!r}"
                 )
             self._dashboard_url = (
                 location if location.startswith("http") else f"{BASE_URL}{location}"
@@ -208,24 +232,42 @@ class AxiosFamigliaClient:
         return None
 
     @_wrap_network_errors
-    async def _raw_action(self, action: str, require_json: bool = True) -> str:
-        """One APP_Ajax_Get.aspx call, without the logged_in/retry logic."""
+    async def _raw_action(
+        self, action: str, require_json: bool = True, body: str | None = None
+    ) -> str:
+        """One APP_Ajax_Get.aspx call, without the logged_in/retry logic.
+
+        GET by default (with the "_" cache-buster the browser adds); POST when `body` is
+        given (used to read a past register week). The browser's POST has NO "_" parameter.
+        """
         headers = self._ajax_headers()
-        async with self._session.get(
-            f"{BASE_URL}{AJAX_PATH}",
-            params={"Action": action, "_": str(int(time.time() * 1000))},
-            headers=headers,
-            timeout=self._timeout,
-        ) as response:
+        url = f"{BASE_URL}{AJAX_PATH}"
+        if body is None:
+            request = self._session.get(
+                url,
+                params={"Action": action, "_": str(int(time.time() * 1000))},
+                headers=headers,
+                timeout=self._timeout,
+            )
+        else:
+            headers["Content-Type"] = WEEK_REQUEST_CONTENT_TYPE
+            request = self._session.post(
+                url,
+                params={"Action": action},
+                data=body.encode("utf-8"),
+                headers=headers,
+                timeout=self._timeout,
+            )
+        async with request as response:
             if response.status >= 400:
-                body = (await response.text())[:500]
+                snippet = (await response.text())[:500]
                 raise AxiosApiError(
-                    f"{action} returned HTTP {response.status}: body={body!r}; "
+                    f"{action} returned HTTP {response.status}: body={snippet!r}; "
                     f"response_headers={_diag_headers(response.headers)}"
                 )
             raw_body = await response.text()
             try:
-                payload: dict[str, Any] = json.loads(raw_body)
+                payload: Any = json.loads(raw_body)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug(
                     "Axios action %s: response was not JSON (content-type=%s). "
@@ -238,6 +280,8 @@ class AxiosFamigliaClient:
                     ) from err
                 return raw_body
 
+        if not isinstance(payload, dict):
+            raise AxiosApiError(f"Unexpected JSON response for {action}: {raw_body[:300]!r}")
         if str(payload.get("errorcode", "0")) != "0":
             raise AxiosApiError(str(payload.get("errormsg", "Unknown Axios error")))
         return html_lib.unescape(str(payload.get("html", "")))
@@ -253,16 +297,83 @@ class AxiosFamigliaClient:
             await self.login()
             return await self._raw_action(action)
 
+    async def _fetch_week(self, monday: date) -> list[dict[str, Any]]:
+        """Register rows of the week starting on `monday`."""
+        fd_data = monday.strftime("%d/%m/%Y")
+        body = json.dumps({"fdData": fd_data}, separators=(",", ":"))
+        raw_html = await self._raw_action(REGISTER_WEEK_ACTION, require_json=False, body=body)
+        rows = parse_register_rows(raw_html)
+        _LOGGER.debug("Axios register week %s: %d rows", fd_data, len(rows))
+        if not rows:
+            _LOGGER.debug(
+                "Axios register week %s: no rows found; response starts with %r",
+                fd_data, raw_html[:300],
+            )
+        return rows
+
+    async def _read_previous_weeks(self) -> tuple[list[dict[str, Any]], bool]:
+        """Rows of the previous weeks that fall in the reading window.
+
+        Returns (rows, complete). A week that cannot be read never breaks the update:
+        its last known rows are used if there are any, otherwise it is skipped.
+        """
+        today = _today()
+        this_monday = today - timedelta(days=today.weekday())
+        mondays = past_week_mondays(today, self._register_days)
+        for stale in [m for m in self._week_cache if m not in mondays]:
+            del self._week_cache[stale]
+
+        rows: list[dict[str, Any]] = []
+        first_error: AxiosApiError | None = None
+        for monday in reversed(mondays):  # previous week first
+            cached = self._week_cache.get(monday)
+            is_old = monday < this_monday - timedelta(days=7)
+            if (
+                cached is not None
+                and is_old
+                and time.monotonic() - cached[0] < OLD_WEEK_CACHE_SECONDS
+            ):
+                rows.extend(cached[1])
+                continue
+            try:
+                week_rows = await self._fetch_week(monday)
+            except AxiosApiError as err:
+                first_error = first_error or err
+                if cached is not None:
+                    rows.extend(cached[1])
+                continue
+            self._week_cache[monday] = (time.monotonic(), week_rows)
+            rows.extend(week_rows)
+
+        complete = first_error is None
+        if complete:
+            self._weeks_warned = False
+        elif not self._weeks_warned:
+            self._weeks_warned = True
+            _LOGGER.warning(
+                "Axios register: could not read the previous weeks (%s). "
+                "Only the weeks already read are shown. Enable debug logs for details.",
+                first_error,
+            )
+        else:
+            _LOGGER.debug("Axios register: previous weeks still unavailable (%s)", first_error)
+        return rows, complete
+
     async def async_get_data(self) -> dict[str, Any]:
         communications_html = await self._action("FAMILY_COMUNICAZIONI")
         absences_html = await self._action("FAMILY_ASSENZE")
-        register_html = await self._action("FAMILY_REGISTRO_CLASSE")
+        # The current week comes from the call that is known to work; the previous
+        # weeks (if any are needed) are added after it.
+        register_html = await self._action(REGISTER_ACTION)
+        current_rows = parse_register_rows(register_html)
+        older_rows, complete = await self._read_previous_weeks()
+        rows = merge_register_rows(current_rows, older_rows)
         return {
             "communications": parse_communications(
                 communications_html, self._communications_limit
             ),
             "absences": parse_absences(absences_html),
-            "register": parse_register(register_html, self._register_days),
+            "register": build_register(rows, self._register_days, partial=not complete),
             "updated_at": datetime.now().astimezone().isoformat(),
         }
 
@@ -298,7 +409,7 @@ def parse_communications(
         })
     return {
         # Totale e non lette contano tutte le comunicazioni del portale;
-        # solo l'elenco è limitato.
+        # solo l'elenco e' limitato.
         "total": len(items),
         "unread": sum(1 for item in items if item["unread"]),
         "latest": items[0] if items else None,
@@ -371,7 +482,7 @@ def _limit_recent_days(days: list[dict[str, Any]], limit_days: int) -> list[dict
         return days
     parsed = [(_parse_date(day["date"]), day) for day in days]
     if all(day_date is not None for day_date, _ in parsed):
-        cutoff = datetime.now().astimezone().date() - timedelta(days=limit_days)
+        cutoff = _today() - timedelta(days=limit_days)
         recent = [(d, row) for d, row in parsed if d >= cutoff]
         recent.sort(key=lambda item: item[0], reverse=True)
         return [row for _, row in recent]
@@ -383,27 +494,72 @@ def _limit_recent_days(days: list[dict[str, Any]], limit_days: int) -> list[dict
     return days[:limit_days]
 
 
-def parse_register(raw_html: str, limit_days: int = DEFAULT_REGISTER_DAYS) -> dict[str, Any]:
-    soup = BeautifulSoup(raw_html, "html.parser")
-    days: list[dict[str, Any]] = []
-    table = soup.select_one("#table-rcla")
-    if table:
-        for row in table.select("tbody tr"):
-            cells = row.find_all("td")
-            if len(cells) < 7:
-                continue
-            days.append({
-                "date": _text(cells[0]),
-                "topics": _text(cells[1]),
-                "homework": _text(cells[2]),
-                "tests": _text(cells[3]),
-                "absences": _text(cells[4]),
-                "annotations": _text(cells[5]),
-                "disciplinary_notes": _text(cells[6]),
-            })
+def past_week_mondays(today: date, limit_days: int) -> list[date]:
+    """Mondays (oldest first) of the weeks BEFORE the current one that overlap
+    the last `limit_days` days. The current week is read by the main call."""
+    if limit_days <= 0:
+        return []
+    this_monday = today - timedelta(days=today.weekday())
+    first = today - timedelta(days=limit_days)
+    monday = first - timedelta(days=first.weekday())
+    mondays: list[date] = []
+    while monday < this_monday:
+        mondays.append(monday)
+        monday += timedelta(days=7)
+    return mondays
 
-    total_rows = len(days)
-    days = _limit_recent_days(days, limit_days)
+
+def parse_register_rows(raw_html: str) -> list[dict[str, Any]]:
+    """The rows (one per school day) of a register page or of a single week."""
+    soup = BeautifulSoup(raw_html, "html.parser")
+    table = soup.select_one("#table-rcla")
+    rows = table.select("tbody tr") if table else []
+    only_dated = False
+    if not rows:
+        # The weekly response may not wrap the rows in the same table:
+        # accept any row with 7 cells whose first cell is a date.
+        rows = soup.select("tr")
+        only_dated = True
+    days: list[dict[str, Any]] = []
+    for row in rows:
+        cells = row.find_all("td")
+        if len(cells) < 7:
+            continue
+        date_text = _text(cells[0])
+        if only_dated and _parse_date(date_text) is None:
+            continue
+        days.append({
+            "date": date_text,
+            "topics": _text(cells[1]),
+            "homework": _text(cells[2]),
+            "tests": _text(cells[3]),
+            "absences": _text(cells[4]),
+            "annotations": _text(cells[5]),
+            "disciplinary_notes": _text(cells[6]),
+        })
+    return days
+
+
+def merge_register_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Join the rows of several pages, keeping the first row seen for each day."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for row in group:
+            parsed = _parse_date(row["date"])
+            key = parsed.isoformat() if parsed else row["date"]
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(row)
+    return merged
+
+
+def build_register(
+    rows: list[dict[str, Any]], limit_days: int = DEFAULT_REGISTER_DAYS, partial: bool = False
+) -> dict[str, Any]:
+    total_rows = len(rows)
+    days = _limit_recent_days(rows, limit_days)
     _LOGGER.debug(
         "Axios register: kept %d of %d rows (last %d days)",
         len(days), total_rows, limit_days,
@@ -414,6 +570,7 @@ def parse_register(raw_html: str, limit_days: int = DEFAULT_REGISTER_DAYS) -> di
     notes = [d for d in days if d["disciplinary_notes"]]
     return {
         "window_days": limit_days,
+        "partial": partial,
         "days": days,
         "homework_count": len(homework),
         "annotation_count": len(annotations),
@@ -422,3 +579,8 @@ def parse_register(raw_html: str, limit_days: int = DEFAULT_REGISTER_DAYS) -> di
         "annotations": annotations,
         "disciplinary_notes": notes,
     }
+
+
+def parse_register(raw_html: str, limit_days: int = DEFAULT_REGISTER_DAYS) -> dict[str, Any]:
+    """Single page (the current week): kept for compatibility."""
+    return build_register(parse_register_rows(raw_html), limit_days)

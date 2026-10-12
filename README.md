@@ -73,6 +73,9 @@ Tutti i passaggi, con i dettagli, sono nella [guida all'installazione](https://g
 
 Segnalazioni e pull request sono benvenute: apri una [issue](https://github.com/fede87GitHub/ha-axios-famiglia/issues) indicando la versione dell'integrazione, quella di Home Assistant e le righe rilevanti del log, con i dati personali rimossi.
 
+## Ringraziamenti
+La UI del pannello è stato ispirato dal progetto [gdahome](https://github.com/danigio15/gdahomeapp)
+
 ## Licenza
 
 Distribuito con licenza [MIT](https://github.com/fede87GitHub/ha-axios-famiglia/blob/main/LICENSE).

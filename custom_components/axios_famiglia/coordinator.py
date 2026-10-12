@@ -63,8 +63,8 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
             request_timeout=self.request_timeout,
         )
 
-        # Rilevamento delle novità: le chiavi già viste sono salvate su disco,
-        # così sopravvivono ai riavvii di Home Assistant.
+        # Rilevamento delle novita': le chiavi gia' viste sono salvate su disco,
+        # cosi' sopravvivono ai riavvii di Home Assistant.
         self._store: Store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_seen")
         self._seen: list[str] | None = None
         self._seen_loaded = False
@@ -79,11 +79,15 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
         )
 
     @property
-    def _window(self) -> dict[str, int]:
+    def _window(self) -> dict[str, Any]:
         """Parametri che decidono QUALI voci vengono lette dal portale."""
         return {
             "register_days": self.register_days,
             "communications_limit": self.communications_limit,
+            # Dalla v1.3.1 il registro si legge settimana per settimana. Le voci delle
+            # settimane precedenti, mai viste prima, non sono novita' e vanno
+            # memorizzate in silenzio al primo aggiornamento dopo l'aggiornamento.
+            "register_source": "weekly",
         }
 
     async def _async_update_data(self) -> dict:
@@ -95,7 +99,7 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
         try:
             await self._async_detect_new_items(data)
         except Exception:  # noqa: BLE001
-            # Un problema nel rilevamento delle novità non deve bloccare i sensori
+            # Un problema nel rilevamento delle novita' non deve bloccare i sensori
             _LOGGER.exception("Axios: new-item detection failed")
             self.new_events = []
             self.new_events_id += 1
@@ -121,8 +125,9 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
             }
 
         if seen is not None and window != self._window:
-            # L'utente ha cambiato quante voci vengono lette: quelle che entrano ora nella
-            # finestra non sono novità, quindi si memorizzano senza notificarle.
+            # Sono cambiate le opzioni (o il modo di leggere il registro): le voci che
+            # entrano ora nella finestra non sono novita', quindi si memorizzano
+            # senza notificarle.
             _LOGGER.debug(
                 "Axios %s: reading window changed (%s -> %s), re-seeding without notifications",
                 self.student_name, window, self._window,
