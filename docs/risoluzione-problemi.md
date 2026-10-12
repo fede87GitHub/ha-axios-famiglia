@@ -25,6 +25,26 @@
 - Il pannello costruisce i nomi dal prefisso `axios_<nome>_`. Se hai rinominato a mano un'entità, il pannello non la trova più.
 - Se il pallino in alto è rosso, almeno una delle entità principali non è disponibile: vedi la sezione successiva.
 
+## Gli allegati non si aprono
+
+| Sintomo | Cosa controllare |
+|---|---|
+| Compare "Questa comunicazione non ha allegati" ma l'allegato c'è | Apri la stessa comunicazione dal portale. Se l'allegato è un link nel testo e non un file allegato, il pannello non lo vede. Apri una segnalazione. |
+| Compare "Impossibile aprire l'allegato" | Attiva i [log di debug](#log-di-debug) e cerca `could not prepare the attachment`: indica quale delle chiamate al portale ha dato errore. |
+| Si apre una scheda vuota che subito si chiude | La comunicazione non ha allegati o il portale non ha risposto. Compare comunque un avviso. |
+| Il PDF si scarica invece di aprirsi | Vedi [Il PDF si scarica invece di aprirsi](pannello.md#il-pdf-si-scarica-invece-di-aprirsi). |
+| Non succede nulla toccando una comunicazione | Ricarica la pagina senza cache (Ctrl+F5). Le comunicazioni senza un identificativo numerico non sono cliccabili. |
+| Nell'app per telefono non si apre la scheda | Alcune app non permettono nuove finestre: compare l'avviso con il link, da toccare per aprire il PDF nel browser del telefono. |
+
+Con i log di debug attivi trovi righe come:
+
+| Riga | Cosa dice |
+|---|---|
+| `Axios communication N: no attachments found in the page` | Il portale ha risposto, ma nella pagina non c'è nessun pulsante di allegato. |
+| `Axios attachment: temporary link obtained (host ...)` | Il portale ha consegnato il link. Il link completo non viene mai scritto nei log. |
+
+Quando apri una segnalazione sugli allegati **non incollare** link, nomi dei file, codice cliente né il contenuto delle risposte del portale senza averli prima sostituiti con segnaposto.
+
 ## Le entità sono "non disponibili" o i dati non si aggiornano
 
 1. Apri il sensore **Ultimo aggiornamento** (`last_update`): se la data è ferma, le letture non vanno a buon fine.

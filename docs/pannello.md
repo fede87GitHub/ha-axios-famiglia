@@ -74,6 +74,38 @@ Ogni voce ha un riquadro con il **giorno e il mese**, un'**etichetta** del tipo 
 
 ![Argomenti svolti](images/topics-light.png)
 
+## Aprire gli allegati
+
+Nella scheda **Comunicazioni** ogni riquadro è cliccabile, e a destra compare l'icona di apertura. Toccando una comunicazione, o premendo Invio o Spazio quando è selezionata, il pannello cerca gli allegati sul portale e li apre.
+
+| Situazione | Cosa succede |
+|---|---|
+| La comunicazione ha **un allegato** | Si apre una nuova scheda del browser sul PDF. |
+| Ha **più allegati** | Compare un elenco: scegli quello da aprire. |
+| **Non ha allegati** | Compare l'avviso "Questa comunicazione non ha allegati". |
+| Il portale **non risponde** | Compare l'avviso "Impossibile aprire l'allegato". Riprova più tardi. |
+| Il browser **blocca** la nuova scheda | Compare un avviso con il link "Apri l'allegato": toccalo per aprire il PDF. |
+
+Come funziona, in breve:
+
+- L'integrazione chiede al portale un **link temporaneo**. Dopo pochi minuti il link non funziona più, quindi ogni apertura ne chiede uno nuovo.
+- Il PDF viene scaricato dal tuo browser **direttamente dal sito che lo ospita**. Non passa da Home Assistant e non viene salvato.
+- Il sito che ospita il file non riceve l'indirizzo di Home Assistant.
+- Ogni apertura fa alcune richieste in più al portale con le tue credenziali.
+
+### Cosa non fa
+
+- **Non segna la comunicazione come letta sul portale.** Se la scuola chiede la presa visione, va confermata dal portale. Nel pannello e nel contatore la comunicazione resta "non letta" finché non la leggi lì.
+- Non salva né mostra il testo della comunicazione: apre solo l'allegato.
+
+### Chi può aprire gli allegati
+
+Per impostazione predefinita il pannello è visibile a tutti gli utenti di Home Assistant, e quindi chiunque lo apra può aprire gli allegati. Per limitare pannello e allegati agli amministratori imposta `PANEL_REQUIRE_ADMIN = True` in `custom_components/axios_famiglia/panel.py` e riavvia Home Assistant.
+
+### Il PDF si scarica invece di aprirsi
+
+Dipende da come il sito che ospita i file consegna il documento: alcuni lo mostrano nel browser, altri lo scaricano. Se vuoi provare a chiedere l'apertura nel browser, in `custom_components/axios_famiglia/api.py` imposta `OPEN_PDF_INLINE = True` e riavvia Home Assistant. L'opzione non è garantita per tutti i siti: se l'allegato non si apre più, rimettila a `False`.
+
 ## Impostazioni del pannello
 
 L'icona a cursori in alto a destra apre le impostazioni.

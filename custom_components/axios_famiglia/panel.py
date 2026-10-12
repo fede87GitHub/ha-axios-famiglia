@@ -11,6 +11,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import slugify
 
+from .api import AxiosApiError
 from .const import CONF_STUDENT_NAME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,7 +20,8 @@ PANEL_URL_PATH = "axios-famiglia"
 PANEL_ELEMENT = "axios-famiglia-panel"
 PANEL_TITLE = "Axios Famiglia"
 PANEL_ICON = "mdi:school"
-# True: il pannello lo vedono solo gli amministratori di Home Assistant.
+# True: il pannello lo vedono solo gli amministratori di Home Assistant, e solo loro possono
+# aprire gli allegati delle comunicazioni.
 # Con False (predefinito) lo vede ogni utente che ha accesso a Home Assistant.
 PANEL_REQUIRE_ADMIN = False
 
@@ -27,6 +29,7 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 PANEL_FILE = "axios-panel.js"
 STATIC_URL = f"/{DOMAIN}_static"
 WS_STUDENTS = f"{DOMAIN}/students"
+WS_ATTACHMENT = f"{DOMAIN}/attachment"
 
 _STATE_KEY = f"{DOMAIN}_panel_state"
 
@@ -41,11 +44,12 @@ def _file_version() -> str:
 
 
 async def async_register_panel(hass: HomeAssistant) -> None:
-    """Registra pannello, file statici e comando WebSocket (una sola volta)."""
+    """Registra pannello, file statici e comandi WebSocket (una sola volta)."""
     state = hass.data.setdefault(_STATE_KEY, {"ws": False, "static": False, "panel": False})
 
     if not state["ws"]:
         websocket_api.async_register_command(hass, ws_students)
+        websocket_api.async_register_command(hass, ws_attachment)
         state["ws"] = True
 
     if not state["static"]:
@@ -91,3 +95,43 @@ def ws_students(hass: HomeAssistant, connection: websocket_api.ActiveConnection,
         if name:
             students.append({"entry_id": entry.entry_id, "name": name, "slug": slugify(name)})
     connection.send_result(msg["id"], students)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_ATTACHMENT,
+        vol.Required("entry_id"): str,
+        vol.Required("post_id"): str,
+        vol.Optional("attachment_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_attachment(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Prepara l'apertura dell'allegato di una comunicazione.
+
+    La risposta e' {"status": "none"}, {"status": "choose", "attachments": [...]} oppure
+    {"status": "ok", "url": ..., "name": ...}: l'indirizzo e' temporaneo e va aperto subito,
+    senza salvarlo.
+    """
+    if PANEL_REQUIRE_ADMIN and not connection.user.is_admin:
+        connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, "Admin access required")
+        return
+
+    coordinator = (hass.data.get(DOMAIN) or {}).get(msg["entry_id"])
+    client = getattr(coordinator, "client", None)
+    if client is None:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Unknown student")
+        return
+
+    try:
+        result = await client.async_open_attachment(msg["post_id"], msg.get("attachment_id"))
+    except ValueError:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Invalid communication id")
+    except AxiosApiError as err:
+        # Il messaggio dettagliato resta nei log di debug; al pannello va un testo generico
+        _LOGGER.warning("Axios: could not prepare the attachment: %s", err)
+        connection.send_error(msg["id"], "portal_error", "The portal did not return the attachment")
+    else:
+        connection.send_result(msg["id"], result)

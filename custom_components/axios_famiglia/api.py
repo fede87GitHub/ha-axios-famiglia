@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import functools
@@ -10,9 +11,11 @@ import logging
 import re
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 from bs4 import BeautifulSoup
+from yarl import URL
 
 from .const import (
     AJAX_PATH,
@@ -47,6 +50,37 @@ WEEK_REQUEST_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
 # Le settimane piu' vecchie della precedente cambiano di rado: si rileggono ogni 6 ore.
 # La settimana precedente e quella corrente si leggono a ogni aggiornamento.
 OLD_WEEK_CACHE_SECONDS = 6 * 60 * 60
+
+# --- Allegati delle comunicazioni -------------------------------------------
+# Flusso del browser (verificato con "Copy as fetch", ottobre 2026):
+#   1. POST SD/SD_Ajax_Get.aspx?Action=BACHECA_VISUALIZZA_CIRCOLARE&Others=<id>|undefined|MHx8fHw=|
+#      body {}  ->  HTML della comunicazione, con un pulsante per ogni allegato (attributi data-*).
+#   2. Il browser chiama anche SAVE_READER_POST: quella chiamata segna la comunicazione come
+#      LETTA sul portale. Qui NON viene chiamata.
+#   3. POST COMMON/COMMON_Ajax_Get.aspx?action=DOWNLOAD_PREPARE_URL
+#      body: base64 di un JSON {url, root, folder, filename, SourceFileName, fileType}
+#      ->  {"errorcode":"0", "json":"<indirizzo temporaneo firmato dello storage>"}
+#   Il PDF si scarica poi direttamente da quell'indirizzo (non servono cookie). L'indirizzo
+#   scade dopo pochi minuti ed e' una "chiave": non va mai salvato, registrato nei log o
+#   mostrato a chi non ha cliccato.
+SD_AJAX_GET_PATH = "/Pages/SD/SD_Ajax_Get.aspx"
+COMMON_AJAX_GET_PATH = "/Pages/COMMON/COMMON_Ajax_Get.aspx"
+VIEW_CIRCULAR_ACTION = "BACHECA_VISUALIZZA_CIRCOLARE"
+DOWNLOAD_PREPARE_ACTION = "DOWNLOAD_PREPARE_URL"
+VIEW_CIRCULAR_BODY = "{}"
+# Nel browser il secondo valore e' "undefined" (parametro JavaScript assente)
+# e il terzo e' il base64 di "0||||"
+VIEW_CIRCULAR_OTHERS_SUFFIX = "|undefined|MHx8fHw=|"
+DOWNLOAD_HANDLER_URL = "../../Handlers/SD_UploadDownloadHandler.aspx"
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
+# Lo storage consegna il file come "scarica" (Content-Disposition: attachment). Con True si
+# aggiunge "&inline" all'indirizzo, che di norma chiede di aprirlo nel visualizzatore del
+# browser. Non e' stato verificato con questo storage: lasciare False se non serve.
+OPEN_PDF_INLINE = False
+
+_POST_ID_RE = re.compile(r"^[0-9]{1,15}$")
+_MAX_ATTACHMENTS = 20
+_MAX_URL_LENGTH = 4096
 
 
 def _diag_headers(headers) -> dict[str, str]:
@@ -134,6 +168,9 @@ class AxiosFamigliaClient:
         # monday of the week -> (time of the reading, rows)
         self._week_cache: dict[date, tuple[float, list[dict[str, Any]]]] = {}
         self._weeks_warned = False
+        # Un solo discorso alla volta con il portale: l'aggiornamento periodico e l'apertura
+        # di un allegato usano la stessa sessione e, se scade, lo stesso login.
+        self._lock = asyncio.Lock()
 
     def _ajax_headers(self) -> dict[str, str]:
         headers = {
@@ -360,13 +397,14 @@ class AxiosFamigliaClient:
         return rows, complete
 
     async def async_get_data(self) -> dict[str, Any]:
-        communications_html = await self._action("FAMILY_COMUNICAZIONI")
-        absences_html = await self._action("FAMILY_ASSENZE")
-        # The current week comes from the call that is known to work; the previous
-        # weeks (if any are needed) are added after it.
-        register_html = await self._action(REGISTER_ACTION)
-        current_rows = parse_register_rows(register_html)
-        older_rows, complete = await self._read_previous_weeks()
+        async with self._lock:
+            communications_html = await self._action("FAMILY_COMUNICAZIONI")
+            absences_html = await self._action("FAMILY_ASSENZE")
+            # The current week comes from the call that is known to work; the previous
+            # weeks (if any are needed) are added after it.
+            register_html = await self._action(REGISTER_ACTION)
+            current_rows = parse_register_rows(register_html)
+            older_rows, complete = await self._read_previous_weeks()
         rows = merge_register_rows(current_rows, older_rows)
         return {
             "communications": parse_communications(
@@ -376,6 +414,120 @@ class AxiosFamigliaClient:
             "register": build_register(rows, self._register_days, partial=not complete),
             "updated_at": datetime.now().astimezone().isoformat(),
         }
+
+    # ------------------------------------------------------------------ allegati
+    @_wrap_network_errors
+    async def _post_text(self, url: URL | str, *, accept: str, body: str, what: str) -> str:
+        """POST like the browser does for the SD_* / COMMON_* endpoints; returns the body text."""
+        headers = {
+            "Accept": accept,
+            "Accept-Language": self._ACCEPT_LANGUAGE,
+            "Content-Type": FORM_CONTENT_TYPE,
+            "Priority": "u=1, i",
+            "User-Agent": self._USER_AGENT,
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        if self._rvt:
+            headers["rvt"] = self._rvt
+        async with self._session.post(
+            url, data=body.encode("utf-8"), headers=headers, timeout=self._timeout
+        ) as response:
+            if response.status >= 400:
+                snippet = (await response.text())[:300]
+                raise AxiosApiError(
+                    f"{what} returned HTTP {response.status}: body={snippet!r}; "
+                    f"response_headers={_diag_headers(response.headers)}"
+                )
+            return await response.text()
+
+    async def _fetch_attachments(self, post_id: str) -> list[dict[str, str]]:
+        # L'indirizzo e' scritto a mano e passato "gia' codificato": e' identico a quello del
+        # browser (con le barre verticali e il "=" finale del base64 non convertiti).
+        url = URL(
+            f"{BASE_URL}{SD_AJAX_GET_PATH}?Action={VIEW_CIRCULAR_ACTION}"
+            f"&Others={post_id}{VIEW_CIRCULAR_OTHERS_SUFFIX}",
+            encoded=True,
+        )
+        raw = await self._post_text(
+            url, accept="text/html, */*; q=0.01", body=VIEW_CIRCULAR_BODY, what=VIEW_CIRCULAR_ACTION
+        )
+        if raw.lstrip().startswith("{"):
+            # Nel caso il portale avvolga l'HTML in una busta JSON come le altre chiamate
+            try:
+                envelope = json.loads(raw)
+            except ValueError:
+                envelope = None
+            if isinstance(envelope, dict):
+                raw = html_lib.unescape(str(envelope.get("html", "")))
+        if "modal-title" not in raw and "modal-body" not in raw:
+            # Non e' la pagina di una comunicazione: tipicamente la sessione e' scaduta
+            raise AxiosApiError(
+                f"Unexpected response for {VIEW_CIRCULAR_ACTION} (response starts with {raw[:200]!r})"
+            )
+        attachments = parse_attachments(raw)
+        if not attachments:
+            _LOGGER.debug(
+                "Axios communication %s: no attachments found in the page (%d chars)",
+                post_id, len(raw),
+            )
+        return attachments
+
+    async def _read_attachments(self, post_id: str) -> list[dict[str, str]]:
+        if not self._logged_in:
+            await self.login()
+        try:
+            return await self._fetch_attachments(post_id)
+        except AxiosApiError:
+            # Session may have expired: retry once after a fresh login.
+            self._logged_in = False
+            await self.login()
+            return await self._fetch_attachments(post_id)
+
+    async def _prepare_download(self, attachment: dict[str, str]) -> str:
+        raw = await self._post_text(
+            f"{BASE_URL}{COMMON_AJAX_GET_PATH}?action={DOWNLOAD_PREPARE_ACTION}",
+            accept="application/json, text/javascript, */*; q=0.01",
+            body=build_download_body(attachment),
+            what=DOWNLOAD_PREPARE_ACTION,
+        )
+        url = parse_download_url(raw)
+        _LOGGER.debug("Axios attachment: temporary link obtained (host %s)", urlsplit(url).hostname)
+        return url
+
+    async def async_open_attachment(
+        self, post_id: str, attachment_id: str | None = None
+    ) -> dict[str, Any]:
+        """Prepare the opening of the attachment of a communication.
+
+        Returns one of:
+          {"status": "none"}                                  no attachment
+          {"status": "choose", "attachments": [{id, name}]}   several attachments: choose one
+          {"status": "ok", "url": ..., "name": ...}           temporary link, valid a few minutes
+
+        Raises ValueError for an invalid id and AxiosApiError when the portal fails.
+        """
+        post_id = validate_post_id(post_id)
+        async with self._lock:
+            attachments = await self._read_attachments(post_id)
+            if not attachments:
+                return {"status": "none"}
+            if attachment_id is None:
+                if len(attachments) > 1:
+                    return {
+                        "status": "choose",
+                        "attachments": [
+                            {"id": item["filename"], "name": item["name"]} for item in attachments
+                        ],
+                    }
+                chosen = attachments[0]
+            else:
+                chosen = next(
+                    (item for item in attachments if item["filename"] == attachment_id), None
+                )
+                if chosen is None:
+                    raise AxiosApiError("Attachment not found in the communication")
+            url = await self._prepare_download(chosen)
+        return {"status": "ok", "url": apply_inline(url), "name": chosen["name"]}
 
 
 def _text(node: Any) -> str:
@@ -415,6 +567,120 @@ def parse_communications(
         "latest": items[0] if items else None,
         "items": items[:limit],
     }
+
+
+def validate_post_id(post_id: Any) -> str:
+    """The id of a communication goes into the URL of the portal: digits only."""
+    value = str(post_id).strip() if post_id is not None else ""
+    if not _POST_ID_RE.match(value):
+        raise ValueError("Invalid communication id")
+    return value
+
+
+def _b64decode_text(value: str) -> str:
+    try:
+        raw = base64.b64decode(value + "=" * (-len(value) % 4), validate=False)
+        return raw.decode("utf-8").strip()
+    except (ValueError, UnicodeDecodeError):
+        return ""
+
+
+def parse_attachments(raw_html: str) -> list[dict[str, str]]:
+    """Attachments of a communication page: one download button each (attributes data-*).
+
+    Values are stripped: the portal writes them as data-root=' 123 ' with spaces inside the quotes.
+    """
+    soup = BeautifulSoup(raw_html, "html.parser")
+    found: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def attr(node: Any, name: str) -> str:
+        value = node.get(name)
+        if isinstance(value, list):
+            value = " ".join(value)
+        return str(value or "").strip()
+
+    for node in soup.find_all(attrs={"data-storage-filename": True}):
+        filename = attr(node, "data-storage-filename") or attr(node, "data-filename")
+        root = attr(node, "data-root")
+        folder = attr(node, "data-folder")
+        if not (filename and root and folder):
+            continue
+        key = (folder, filename)
+        if key in seen:
+            continue
+        seen.add(key)
+        source = attr(node, "data-source-filename")
+        name = _b64decode_text(source) if source else ""
+        name = name or attr(node, "title") or filename
+        if not source:
+            source = base64.b64encode(name.encode("utf-8")).decode("ascii")
+        found.append({
+            "root": root,
+            "folder": folder,
+            "filename": filename,
+            "source": source,
+            "file_type": attr(node, "data-filetype") or "0",
+            "name": name[:200],
+        })
+        if len(found) >= _MAX_ATTACHMENTS:
+            break
+    return found
+
+
+def build_download_body(attachment: dict[str, str]) -> str:
+    """Body of DOWNLOAD_PREPARE_URL: base64 of a compact JSON, keys in the browser's order."""
+    payload = {
+        "url": DOWNLOAD_HANDLER_URL,
+        "root": attachment["root"],
+        "folder": attachment["folder"],
+        "filename": attachment["filename"],
+        "SourceFileName": attachment["source"],
+        "fileType": attachment["file_type"],
+    }
+    text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def parse_download_url(raw: str) -> str:
+    """The temporary link from the DOWNLOAD_PREPARE_URL response.
+
+    Error messages never contain the link: it works as a key until it expires.
+    """
+    try:
+        payload = json.loads(raw)
+    except ValueError as err:
+        raise AxiosApiError("Invalid (non-JSON) response for DOWNLOAD_PREPARE_URL") from err
+    if not isinstance(payload, dict):
+        raise AxiosApiError("Unexpected JSON response for DOWNLOAD_PREPARE_URL")
+    if str(payload.get("errorcode", "0")) != "0":
+        raise AxiosApiError(str(payload.get("errormsg", "Unknown Axios error")))
+    url = payload.get("json")
+    if not isinstance(url, str) or not url.strip():
+        raise AxiosApiError("DOWNLOAD_PREPARE_URL did not return a link")
+    url = url.strip()
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        has_credentials = bool(parts.username or parts.password)
+    except ValueError as err:
+        raise AxiosApiError("DOWNLOAD_PREPARE_URL returned an invalid link") from err
+    if (
+        parts.scheme != "https"
+        or not host
+        or has_credentials
+        or len(url) > _MAX_URL_LENGTH
+        or any(char in url for char in " \t\r\n\"'<>\\")
+    ):
+        raise AxiosApiError("DOWNLOAD_PREPARE_URL returned a link that was not accepted")
+    return url
+
+
+def apply_inline(url: str) -> str:
+    """Optionally ask the storage to show the file in the browser instead of downloading it."""
+    if not OPEN_PDF_INLINE or "inline" in urlsplit(url).query.split("&"):
+        return url
+    return f"{url}{'&' if '?' in url else '?'}inline"
 
 
 def parse_absences(raw_html: str) -> dict[str, Any]:

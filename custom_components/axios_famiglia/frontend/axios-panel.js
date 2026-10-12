@@ -5,6 +5,7 @@
  */
 
 const WS_STUDENTS = "axios_famiglia/students";
+const WS_ATTACHMENT = "axios_famiglia/attachment";
 const STORE_KEY = "axios_famiglia_student";
 const PREFS_KEY = "axios_famiglia_prefs";
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // dati "non recenti" dopo 6 ore
@@ -24,6 +25,9 @@ const TEXT = {
     system: "Sistema", light: "Chiaro", dark: "Scuro",
     integration: "Opzioni dell'integrazione",
     deviceOnly: "Le preferenze valgono solo per questo dispositivo.",
+    openAttachment: "Apri l'allegato", opening: "Apro l'allegato…", noAttachment: "Questa comunicazione non ha allegati.",
+    attachError: "Impossibile aprire l'allegato. Riprova più tardi.", chooseAttachment: "Scegli l'allegato",
+    popupBlocked: "Il browser ha bloccato l'apertura della nuova scheda.", openLink: "Apri l'allegato",
     tab: { home: "HOME", comm: "COMUNICAZIONI", agenda: "COMPITI E VERIFICHE", topics: "ARGOMENTI", absences: "ASSENZE E USCITE", notes: "ANNOTAZIONI E NOTE" },
     tile: { comm: "COMUNICAZIONI", homework: "COMPITI", tests: "VERIFICHE", annotations: "ANNOTAZIONI", notes: "NOTE DISCIPLINARI", absences: "ASSENZE", late: "RITARDI", exits: "USCITE ANTICIPATE", pct: "% ASSENZE", topics: "ARGOMENTI" },
     chip: { comm: "NON LETTE", homework: "COMPITI", tests: "VERIFICHE", annotations: "ANNOTAZIONI", notes: "NOTE DISCIPLINARI" },
@@ -43,6 +47,9 @@ const TEXT = {
     system: "System", light: "Light", dark: "Dark",
     integration: "Integration options",
     deviceOnly: "Preferences apply to this device only.",
+    openAttachment: "Open the attachment", opening: "Opening the attachment…", noAttachment: "This communication has no attachments.",
+    attachError: "Could not open the attachment. Try again later.", chooseAttachment: "Choose the attachment",
+    popupBlocked: "The browser blocked the new tab.", openLink: "Open the attachment",
     tab: { home: "HOME", comm: "COMMUNICATIONS", agenda: "HOMEWORK AND TESTS", topics: "LESSON TOPICS", absences: "ABSENCES AND EXITS", notes: "ANNOTATIONS AND NOTES" },
     tile: { comm: "COMMUNICATIONS", homework: "HOMEWORK", tests: "TESTS", annotations: "ANNOTATIONS", notes: "DISCIPLINARY NOTES", absences: "ABSENCES", late: "LATE ENTRIES", exits: "EARLY EXITS", pct: "% ABSENCES", topics: "LESSON TOPICS" },
     chip: { comm: "UNREAD", homework: "HOMEWORK", tests: "TESTS", annotations: "ANNOTATIONS", notes: "DISCIPLINARY NOTES" },
@@ -126,11 +133,24 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._topicsVersion = 0;
     this._clock = null;
     this._settingsOpen = false;
+    this._busy = false; // apertura di un allegato in corso
+    this._choose = null; // {commId, attachments:[{id,name}]} quando una comunicazione ha piu' allegati
+    this._toast = null; // {text, link?}
+    this._toastTimer = null;
     this._prefs = this._loadPrefs();
     this._onKey = (e) => {
-      if (e.key === "Escape" && this._settingsOpen) { this._settingsOpen = false; this._render(false); }
+      if (e.key !== "Escape") return;
+      if (this._choose) { this._choose = null; this._render(false); }
+      else if (this._settingsOpen) { this._settingsOpen = false; this._render(false); }
     };
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
+    // Le comunicazioni sono riquadri cliccabili: si attivano anche con Invio e Spazio
+    this.shadowRoot.addEventListener("keydown", (ev) => {
+      if ((ev.key === "Enter" || ev.key === " ") && ev.target && ev.target.matches && ev.target.matches("[data-act=comm]")) {
+        ev.preventDefault();
+        this._onClick({ target: ev.target });
+      }
+    });
   }
 
   connectedCallback() {
@@ -139,6 +159,7 @@ class AxiosFamigliaPanel extends HTMLElement {
   }
   disconnectedCallback() {
     clearInterval(this._clock);
+    clearTimeout(this._toastTimer);
     document.removeEventListener("keydown", this._onKey);
   }
 
@@ -321,12 +342,104 @@ class AxiosFamigliaPanel extends HTMLElement {
     return rtf.format(Math.round(diff / 86400), "day");
   }
 
+  // ---------- allegati delle comunicazioni ----------
+  _safeUrl(value) {
+    try {
+      const u = new URL(String(value));
+      return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
+    } catch (_e) { return null; }
+  }
+
+  _showToast(text, opts = {}) {
+    clearTimeout(this._toastTimer);
+    this._toast = { text, link: opts.link || null };
+    if (!opts.sticky) this._toastTimer = setTimeout(() => this._hideToast(), opts.link ? 15000 : 6000);
+    this._render(false);
+  }
+  _hideToast() {
+    clearTimeout(this._toastTimer);
+    if (!this._toast) return;
+    this._toast = null;
+    this._render(false);
+  }
+
+  // Scrive nella scheda appena aperta una pagina che porta al PDF. Il browser non invia
+  // l'indirizzo di Home Assistant al sito dell'allegato (referrer: no-referrer).
+  _launch(win, url) {
+    const t = this._t();
+    try {
+      win.document.open();
+      win.document.write(
+        `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer">` +
+        `<meta http-equiv="refresh" content="0;url=${esc(url)}"><title>${esc(t.opening)}</title>` +
+        `<body style="font-family:sans-serif;padding:24px;color:#555">${esc(t.opening)} ` +
+        `<a href="${esc(url)}" rel="noreferrer noopener">${esc(t.openLink)}</a></body>`
+      );
+      win.document.close();
+      return true;
+    } catch (_e) {
+      try { win.location.replace(url); return true; } catch (_e2) { return false; }
+    }
+  }
+
+  async _openAttachment(commId, attachmentId = null) {
+    const t = this._t();
+    if (this._busy || !commId) return;
+    const student = (this._students || []).find((s) => s.slug === this._student);
+    if (!student || !student.entry_id) { this._showToast(t.attachError); return; }
+    // La scheda va aperta ADESSO, mentre il clic e' ancora "fresco": dopo l'attesa della risposta
+    // molti browser (Safari soprattutto) bloccherebbero l'apertura.
+    let win = null;
+    try {
+      win = window.open("", "_blank");
+      if (win) win.opener = null;
+    } catch (_e) { win = null; }
+    const closeWin = () => { try { if (win && !win.closed) win.close(); } catch (_e) { /* ignora */ } };
+    this._busy = true;
+    this._choose = null;
+    this._showToast(t.opening, { sticky: true });
+    try {
+      const msg = { type: WS_ATTACHMENT, entry_id: student.entry_id, post_id: String(commId) };
+      if (attachmentId) msg.attachment_id = String(attachmentId);
+      const res = await this._hass.callWS(msg);
+      if (res && res.status === "ok") {
+        const url = this._safeUrl(res.url);
+        if (!url) throw new Error("invalid link");
+        if (win && !win.closed && this._launch(win, url)) {
+          this._hideToast();
+        } else {
+          // Scheda bloccata (o app senza finestre): un secondo tocco, che e' un clic vero, la apre
+          closeWin();
+          this._showToast(t.popupBlocked, { link: { url, label: t.openLink } });
+        }
+      } else if (res && res.status === "choose" && Array.isArray(res.attachments) && res.attachments.length) {
+        closeWin();
+        this._choose = { commId, attachments: res.attachments.map((a) => ({ id: String(a.id), name: String(a.name || a.id) })) };
+        this._hideToast();
+        this._render(false);
+      } else {
+        closeWin();
+        this._showToast(t.noAttachment);
+      }
+    } catch (err) {
+      closeWin();
+      console.warn("Axios Famiglia: allegato non aperto", err && err.code ? err.code : "");
+      this._showToast(t.attachError);
+    } finally {
+      this._busy = false;
+    }
+  }
+
   // ---------- eventi ----------
   _onClick(ev) {
     const el = ev.target.closest("[data-act]");
     if (!el) return;
     const { act, val, group } = el.dataset;
     if (act === "menu") this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
+    else if (act === "comm") this._openAttachment(val);
+    else if (act === "attach") this._openAttachment(this._choose && this._choose.commId, val);
+    else if (act === "closechoose") { this._choose = null; this._render(false); }
+    else if (act === "toastclose") this._hideToast();
     else if (act === "settings") { this._settingsOpen = true; this._render(false); }
     else if (act === "close") { this._settingsOpen = false; this._render(false); }
     else if (act === "pref") {
@@ -343,6 +456,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     } else if (act === "view") { this._view = val; this._render(true, true); }
     else if (act === "student") {
       this._student = val;
+      this._choose = null;
       try { localStorage.setItem(STORE_KEY, val); } catch (_e) { /* ignora */ }
       this._render(true);
       this._loadTopics(val);
@@ -392,7 +506,7 @@ class AxiosFamigliaPanel extends HTMLElement {
         ${body}
       </div></div>
       ${this._nav()}
-    </div>${this._settingsSheet(isAdmin)}`;
+    </div>${this._settingsSheet(isAdmin)}${this._attachSheet()}${this._toastHtml()}`;
   }
 
   _tiles(m) {
@@ -464,7 +578,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     const t = this._t();
     let items = [];
     if (this._view === "comm") {
-      items = m.comms.map((c) => ({ d: c.d, tag: c.type || "", color: c.unread ? "orange" : "blue", text: c.title, meta: [c.author ? `${t.by} ${c.author}` : "", c.unread ? t.unread : ""].filter(Boolean).join(" · "), unread: c.unread }));
+      items = m.comms.map((c) => ({ d: c.d, tag: c.type || "", color: c.unread ? "orange" : "blue", text: c.title, commId: /^\d{1,15}$/.test(String(c.id || "")) ? String(c.id) : "", meta: [c.author ? `${t.by} ${c.author}` : "", c.unread ? t.unread : ""].filter(Boolean).join(" · "), unread: c.unread }));
     } else if (this._view === "agenda") {
       items = [
         ...m.homework.map((x) => ({ d: x.d, tag: t.tag.homework, color: "purple", text: x.text })),
@@ -487,13 +601,15 @@ class AxiosFamigliaPanel extends HTMLElement {
       const mon = d ? d.toLocaleDateString(this._loc, { month: "short" }).replace(/\./g, "").toUpperCase() : "";
       const wd = d ? d.toLocaleDateString(this._loc, { weekday: "long" }) : "";
       const text = it.topics ? esc(it.text).replace(/([A-ZÀÈÉÌÒÙ][A-ZÀÈÉÌÒÙ' ]{2,}):/g, "<b>$1</b>:") : esc(it.text);
-      return `<div class="item ${it.unread ? "unread" : ""}" style="--fg:${COLORS[it.color]}">
+      // Le comunicazioni si aprono con un clic: se hanno un allegato, si apre il PDF
+      const click = it.commId ? ` data-act="comm" data-val="${esc(it.commId)}" role="button" tabindex="0" title="${esc(t.openAttachment)}"` : "";
+      return `<div class="item ${it.unread ? "unread" : ""} ${it.commId ? "click" : ""}" style="--fg:${COLORS[it.color]}"${click}>
         <div class="date"><b>${day}</b><span>${mon}</span></div>
         <div class="body">
           ${it.tag || wd ? `<div class="line">${it.tag ? `<span class="tag">${esc(it.tag)}</span>` : ""}${wd ? `<span class="wd">${esc(wd)}</span>` : ""}</div>` : ""}
           <div class="txt">${text}</div>
           ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
-        </div></div>`;
+        </div>${it.commId ? `<span class="go" aria-hidden="true">${this._icon("ext", 16)}</span>` : ""}</div>`;
     }).join("");
     // Il titolo e' lo stesso testo della voce nella barra in basso
     return `<div class="sec">${t.tab[this._view]}</div>${rows || `<div class="card empty">${t.empty}</div>`}`;
@@ -531,6 +647,26 @@ class AxiosFamigliaPanel extends HTMLElement {
         <p class="hint">${t.deviceOnly}</p>
       </div>
     </div>`;
+  }
+
+  // Elenco degli allegati, solo quando una comunicazione ne ha piu' di uno
+  _attachSheet() {
+    if (!this._choose) return "";
+    const t = this._t();
+    return `<div class="overlay" role="dialog" aria-modal="true" aria-label="${esc(t.chooseAttachment)}">
+      <div class="backdrop" data-act="closechoose"></div>
+      <div class="sheet card">
+        <div class="shead"><h2>${t.chooseAttachment}</h2><button class="iconbtn" data-act="closechoose" aria-label="${t.close}">${this._icon("x", 18)}</button></div>
+        ${this._choose.attachments.map((a) => `<button class="linkrow" data-act="attach" data-val="${esc(a.id)}">${this._icon("note", 18)}<span>${esc(a.name)}</span>${this._icon("ext", 16)}</button>`).join("")}
+      </div>
+    </div>`;
+  }
+
+  _toastHtml() {
+    if (!this._toast) return "";
+    const t = this._t();
+    const link = this._toast.link;
+    return `<div class="toast" role="status"><span>${esc(this._toast.text)}</span>${link ? `<a href="${esc(link.url)}" target="_blank" rel="noopener noreferrer">${esc(link.label)}</a>` : ""}<button data-act="toastclose" aria-label="${t.close}">${this._icon("x", 16)}</button></div>`;
   }
 }
 
@@ -603,6 +739,11 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .seg i.on{background:var(--fg)}
 .item{display:flex;gap:14px;align-items:flex-start;margin-bottom:10px;padding:14px;border-radius:20px;background:var(--card);box-shadow:var(--shadow)}
 .item.unread{box-shadow:inset 4px 0 0 var(--fg),var(--shadow)}
+.item.click{cursor:pointer;transition:transform .12s ease}
+.item.click:hover{transform:translateY(-1px)}
+.item.click:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.go{align-self:center;flex:0 0 auto;display:grid;place-items:center;width:32px;height:32px;border-radius:11px;background:var(--chip);color:var(--muted)}
+.item.click:hover .go{color:var(--fg)}
 .date{flex:0 0 54px;padding:9px 0 8px;border-radius:15px;text-align:center;color:var(--fg);background:color-mix(in srgb,var(--fg) 14%,var(--card))}
 .date b{display:block;font-size:21px;font-weight:800;line-height:1}
 .date span{display:block;margin-top:3px;font-size:9px;font-weight:800;letter-spacing:.12em}
@@ -631,9 +772,13 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .opt{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px;border-radius:16px;background:var(--chip);border:2px solid transparent;font-size:12px;font-weight:700;color:var(--muted);text-align:center}
 .opt.on{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
 .opt .code{display:grid;place-items:center;width:20px;height:20px;font-size:12px;font-weight:800;letter-spacing:.03em}
-.linkrow{display:flex;align-items:center;gap:10px;width:100%;margin-top:18px;padding:12px 14px;border-radius:16px;background:var(--chip);font-size:13px;font-weight:700}
-.linkrow span{flex:1}
+.linkrow{display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;padding:12px 14px;border-radius:16px;background:var(--chip);font-size:13px;font-weight:700}
+.linkrow:first-of-type{margin-top:18px}
+.linkrow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;word-break:break-word}
 .hint{margin:14px 2px 0;font-size:11px;font-weight:600;color:var(--muted)}
+.toast{position:absolute;z-index:40;left:14px;right:14px;margin:0 auto;width:max-content;bottom:124px;display:flex;align-items:center;gap:12px;max-width:min(520px,calc(100% - 28px));padding:12px 14px;border-radius:16px;background:var(--text);color:var(--bg);font-size:13px;font-weight:700;box-shadow:0 14px 34px rgba(0,0,0,.35)}
+.toast a{color:inherit;text-decoration:underline;font-weight:800;white-space:nowrap}
+.toast button{flex:0 0 auto;display:grid;place-items:center;color:inherit;opacity:.8}
 :host(.narrow) .overlay{align-items:flex-end}
 :host(.narrow) .top{grid-template-columns:48px 1fr 70px}
 :host(.narrow) .ttl h1{font-size:19px}
