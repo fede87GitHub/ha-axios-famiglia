@@ -51,6 +51,24 @@ WEEK_REQUEST_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
 # La settimana precedente e quella corrente si leggono a ogni aggiornamento.
 OLD_WEEK_CACHE_SECONDS = 6 * 60 * 60
 
+# --- Studenti dell'accesso ---------------------------------------------------
+# Un accesso al portale puo' avere piu' studenti (figli). Dalla cattura di rete di un account con
+# due figlie (ottobre 2026):
+#   * la risposta di DashboardLoad elenca gli studenti come link
+#       <a class="change-alunno dashboard-stat [active]" data-action="FAMILY_CHANGE_ALUNNO"
+#          data-others="<id dello studente>">Nome</a>
+#     e quello con la classe "active" e' lo studente corrente (dopo il login, il primo).
+#   * per cambiare studente il browser invia
+#       POST .../APP_Ajax_Get.aspx?Action=FAMILY_CHANGE_ALUNNO     (senza "&_=")
+#       content-type: application/x-www-form-urlencoded; charset=UTF-8
+#       body: {"alunnoId":"<data-others del link>"}
+#     e riceve {"errorcode":"0","errormsg":"...","html":"<dashboard>"} con "active" sul nuovo studente.
+# NON verificato: che dopo il cambio le chiamate FAMILY_COMUNICAZIONI / FAMILY_ASSENZE /
+# FAMILY_REGISTRO_CLASSE restituiscano i dati del nuovo studente (nella cattura non ci sono).
+# Si presume di si', perche' quelle chiamate non portano nessun identificativo dello studente.
+DASHBOARD_LOAD_ACTION = "DashboardLoad"
+CHANGE_STUDENT_ACTION = "FAMILY_CHANGE_ALUNNO"
+
 # --- Allegati delle comunicazioni -------------------------------------------
 # Flusso del browser (verificato con "Copy as fetch", ottobre 2026):
 #   1. POST SD/SD_Ajax_Get.aspx?Action=BACHECA_VISUALIZZA_CIRCOLARE&Others=<id>|undefined|MHx8fHw=|
@@ -97,6 +115,7 @@ _POST_ID_RE = re.compile(r"^[0-9]{1,15}$")
 _MAX_ATTACHMENTS = 20
 _MAX_URL_LENGTH = 4096
 _MAX_POST_REF_LENGTH = 200
+_MAX_STUDENTS = 20
 
 
 def _diag_headers(headers) -> dict[str, str]:
@@ -128,6 +147,14 @@ class AxiosInitSequenceError(AxiosApiError):
     """Dashboard-initialization sequence (HeaderLoad/FooterLoad/DashboardLoad) failed."""
 
 
+class AxiosStudentNotFoundError(AxiosApiError):
+    """The student this entry is configured for is not in the list of the account."""
+
+
+class AxiosStudentSwitchError(AxiosApiError):
+    """The portal did not confirm the change of student."""
+
+
 def _wrap_network_errors(func):
     """Convert aiohttp/timeout errors into AxiosApiError."""
 
@@ -148,6 +175,16 @@ class AxiosCredentials:
     password: str
 
 
+@dataclass(frozen=True)
+class PortalStudent:
+    """A student of the account, as listed by the portal."""
+
+    id: str  # value to send in FAMILY_CHANGE_ALUNNO (data-others of the link)
+    name: str  # text of the link, as the portal writes it
+    active: bool  # True for the student the portal is currently showing
+    index: int  # position in the list
+
+
 class AxiosFamigliaClient:
     """Client for the unofficial Axios Famiglia AJAX endpoints.
 
@@ -159,6 +196,8 @@ class AxiosFamigliaClient:
          before the first FAMILY_* call (done in `login()`).
       4. The class register page shows only the current week: previous weeks
          are read one by one with FAMILY_REGISTRO_CLASSE_SETTIMANA.
+      5. An account can have several students: the one to read is chosen with
+         FAMILY_CHANGE_ALUNNO right after the initialization sequence.
     """
 
     _USER_AGENT = USER_AGENT
@@ -177,6 +216,8 @@ class AxiosFamigliaClient:
         register_days: int = DEFAULT_REGISTER_DAYS,
         communications_limit: int = DEFAULT_COMMUNICATIONS_LIMIT,
         request_timeout: int = DEFAULT_REQUEST_TIMEOUT,
+        student_name: str | None = None,
+        student_index: int | None = None,
     ) -> None:
         self._session = session
         self._credentials = credentials
@@ -189,6 +230,13 @@ class AxiosFamigliaClient:
         # monday of the week -> (time of the reading, rows)
         self._week_cache: dict[date, tuple[float, list[dict[str, Any]]]] = {}
         self._weeks_warned = False
+        # Studente da leggere: None = quello che il portale mostra dopo il login (comportamento
+        # delle voci create prima del supporto a piu' studenti).
+        self._student_name = (student_name or "").strip() or None
+        self._student_index = student_index
+        self._students_warned = False
+        self.students: list[PortalStudent] = []
+        self.selected_student: PortalStudent | None = None
         # Un solo discorso alla volta con il portale: l'aggiornamento periodico e l'apertura
         # di un allegato usano la stessa sessione e, se scade, lo stesso login.
         self._lock = asyncio.Lock()
@@ -212,6 +260,7 @@ class AxiosFamigliaClient:
             "Axios login: starting fresh login as %s / customer %s",
             self._credentials.username, self._credentials.customer_id,
         )
+        self._logged_in = False
         login_page_url = f"{BASE_URL}{LOGIN_PATH}"
 
         async with self._session.get(
@@ -267,9 +316,10 @@ class AxiosFamigliaClient:
             )
         _LOGGER.debug("Axios login: _AXToken found (len=%d)", len(self._rvt))
 
+        dashboard_load_html = ""
         for init_action in DASHBOARD_INIT_ACTIONS:
             try:
-                await self._raw_action(init_action, require_json=False)
+                result = await self._raw_action(init_action, require_json=False)
             except AxiosApiError as err:
                 _LOGGER.error(
                     "Axios login: dashboard init call '%s' FAILED: %s", init_action, err,
@@ -277,9 +327,63 @@ class AxiosFamigliaClient:
                 raise AxiosInitSequenceError(
                     f"Dashboard initialization call '{init_action}' failed: {err}"
                 ) from err
+            if init_action == DASHBOARD_LOAD_ACTION:
+                dashboard_load_html = result
             _LOGGER.debug("Axios login: dashboard init call '%s' completed", init_action)
 
+        # La risposta di DashboardLoad elenca gli studenti dell'accesso: si legge qui, senza
+        # richieste in piu', e se serve si passa allo studente scelto.
+        self.students = parse_students(dashboard_load_html)
+        await self._ensure_student()
         self._logged_in = True
+
+    async def _ensure_student(self) -> None:
+        """Make sure the portal is showing the student this client is configured for."""
+        active = next((s for s in self.students if s.active), None)
+        self.selected_student = active
+        if not self._student_name:
+            return  # comportamento di sempre: si legge lo studente che il portale mostra
+        if not self.students:
+            if not self._students_warned:
+                self._students_warned = True
+                _LOGGER.warning(
+                    "Axios: the portal did not list the students of the account, so the student "
+                    "cannot be chosen. The data of the student shown by the portal is used."
+                )
+            return
+
+        target = resolve_student(self.students, self._student_name, self._student_index)
+        self.selected_student = target
+        if target.active:
+            _LOGGER.debug(
+                "Axios login: the wanted student (position %d of %d) is already the active one",
+                target.index + 1, len(self.students),
+            )
+            return
+
+        _LOGGER.debug(
+            "Axios login: switching to the student in position %d of %d",
+            target.index + 1, len(self.students),
+        )
+        body = json.dumps({"alunnoId": target.id}, separators=(",", ":"))
+        raw_html = await self._raw_action(CHANGE_STUDENT_ACTION, require_json=False, body=body)
+        after = parse_students(raw_html)
+        if not after:
+            # La risposta non permette di verificare: non e' un errore sicuro, ma va segnalato.
+            _LOGGER.warning(
+                "Axios: the portal answered the change of student but the answer does not allow "
+                "to confirm it (response starts with %r)",
+                raw_html[:120],
+            )
+            return
+        now_active = next((s for s in after if s.active), None)
+        if now_active is None or now_active.id != target.id:
+            raise AxiosStudentSwitchError(
+                "The portal did not confirm the change of student "
+                f"(wanted position {target.index + 1} of {len(after)})"
+            )
+        self.students = after
+        self.selected_student = now_active
 
     @classmethod
     def _extract_axtoken(cls, html_text: str) -> str | None:
@@ -296,7 +400,8 @@ class AxiosFamigliaClient:
         """One APP_Ajax_Get.aspx call, without the logged_in/retry logic.
 
         GET by default (with the "_" cache-buster the browser adds); POST when `body` is
-        given (used to read a past register week). The browser's POST has NO "_" parameter.
+        given (used to read a past register week and to change student). The browser's POST
+        has NO "_" parameter.
         """
         headers = self._ajax_headers()
         url = f"{BASE_URL}{AJAX_PATH}"
@@ -327,10 +432,11 @@ class AxiosFamigliaClient:
             try:
                 payload: Any = json.loads(raw_body)
             except Exception as err:  # noqa: BLE001
+                # Il contenuto NON va nel log: le risposte HTML (per esempio DashboardLoad)
+                # contengono i nomi degli studenti, e chi segnala un problema incolla i log.
                 _LOGGER.debug(
-                    "Axios action %s: response was not JSON (content-type=%s). "
-                    "Raw body (first 500 chars): %r",
-                    action, response.headers.get("Content-Type"), raw_body[:500],
+                    "Axios action %s: response was not JSON (content-type=%s, %d chars)",
+                    action, response.headers.get("Content-Type"), len(raw_body),
                 )
                 if require_json:
                     raise AxiosApiError(
@@ -350,7 +456,8 @@ class AxiosFamigliaClient:
         try:
             return await self._raw_action(action)
         except AxiosApiError:
-            # Session may have expired: retry once after a fresh login.
+            # Session may have expired: retry once after a fresh login
+            # (which also chooses the student again).
             self._logged_in = False
             await self.login()
             return await self._raw_action(action)
@@ -608,6 +715,58 @@ class AxiosFamigliaClient:
 
 def _text(node: Any) -> str:
     return " ".join(node.get_text(" ", strip=True).split()) if node else ""
+
+
+def _norm_name(value: str) -> str:
+    return " ".join(str(value).split()).casefold()
+
+
+def parse_students(raw_html: str) -> list[PortalStudent]:
+    """Students listed by the portal: links a.change-alunno with data-action FAMILY_CHANGE_ALUNNO.
+
+    The link with the class "active" is the student the portal is showing. An account with a
+    single student may not list any link at all: the result is then an empty list.
+    """
+    soup = BeautifulSoup(raw_html or "", "html.parser")
+    students: list[PortalStudent] = []
+    seen: set[str] = set()
+    for node in soup.select("a.change-alunno"):
+        if str(node.get("data-action", "")).strip().upper() != CHANGE_STUDENT_ACTION:
+            continue
+        student_id = str(node.get("data-others", "")).strip()
+        name = _text(node)
+        if not student_id or not name or student_id in seen:
+            continue
+        seen.add(student_id)
+        classes = node.get("class") or []
+        if isinstance(classes, str):
+            classes = classes.split()
+        students.append(
+            PortalStudent(id=student_id, name=name, active="active" in classes, index=len(students))
+        )
+        if len(students) >= _MAX_STUDENTS:
+            break
+    return students
+
+
+def resolve_student(
+    students: list[PortalStudent], name: str, index: int | None = None
+) -> PortalStudent:
+    """The student with the given name. With homonyms, the stored position decides.
+
+    Raises AxiosStudentNotFoundError (without writing any name in the message).
+    """
+    wanted = _norm_name(name)
+    matches = [student for student in students if _norm_name(student.name) == wanted]
+    if not matches:
+        raise AxiosStudentNotFoundError(
+            f"The student of this entry is not among the {len(students)} students of the account"
+        )
+    if len(matches) > 1 and index is not None:
+        for student in matches:
+            if student.index == index:
+                return student
+    return matches[0]
 
 
 def parse_communications(

@@ -6,6 +6,14 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_STUDENT_NAME = "student_name"
 
+# --- Studente del portale (config entry) ---
+# Un accesso puo' avere piu' studenti: ogni voce di configurazione e' legata a uno di essi.
+# Si salva il nome come lo scrive il portale e la sua posizione nell'elenco (serve solo per gli
+# omonimi). Le voci create prima del supporto a piu' studenti non li hanno: leggono lo studente
+# che il portale mostra dopo il login, come hanno sempre fatto.
+CONF_PORTAL_STUDENT = "portal_student"
+CONF_PORTAL_STUDENT_INDEX = "portal_student_index"
+
 # --- Opzioni modificabili dall'utente (options flow) ---
 CONF_SCAN_INTERVAL = "scan_interval"  # minuti
 CONF_REGISTER_DAYS = "register_days"  # giorni di registro da considerare

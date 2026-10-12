@@ -21,15 +21,28 @@ Alla prima lettura le voci già presenti sul portale (comunicazioni, compiti, ec
 
 ## Più studenti
 
-Ripeti la procedura per ogni studente, con le sue credenziali. Ogni studente ha:
+Se l'accesso al portale ha **più studenti** (per esempio due figli), aggiungi **una voce per ogni studente**, tutte con lo stesso accesso:
 
-- il proprio dispositivo (`Axios <nome>`);
-- le proprie entità, con prefisso `axios_<nome>_`;
-- le proprie opzioni;
-- una scheda nel selettore in alto del [pannello](pannello.md).
+1. Aggiungi l'integrazione e compila nome dello studente, codice cliente, utente e password.
+2. Se l'accesso ha più studenti compare un secondo passaggio, **Scegli lo studente**: seleziona quale studente del portale mostrerà questa voce. I nomi sono quelli che il portale scrive nella sua dashboard.
+3. Ripeti la procedura per ogni altro studente, con lo stesso accesso e un **nome studente diverso**.
 
-Due voci con lo stesso codice cliente e lo stesso nome utente vengono rifiutate con "Account già configurato". Se due figli usano lo stesso accesso al portale, questa versione non gestisce la scelta dello studente: l'integrazione legge i dati dell'accesso così come li mostra il portale.
+Ogni voce ha il proprio dispositivo, le proprie entità (con il prefisso `axios_<nome>_`), le proprie [opzioni](#opzioni) e una scheda nel selettore del [pannello](pannello.md).
 
+- Nel secondo passaggio compaiono solo gli studenti **non ancora configurati**. Quando sono tutti configurati, l'integrazione lo segnala.
+- Il **nome dello studente** che digiti è solo un'etichetta per Home Assistant (dispositivo ed entità): non deve coincidere con quello del portale. Due voci non possono avere lo stesso nome.
+- Ogni voce accede al portale con la **propria sessione**: con due studenti l'integrazione fa due accessi separati a ogni aggiornamento.
+- Per scegliere lo studente l'integrazione usa la stessa chiamata del sito, e controlla che il portale confermi il cambio prima di leggere qualsiasi dato.
+
+### Voci create prima della versione 1.5.0
+
+Non sono legate a nessuno studente e leggono quello che il portale mostra dopo l'accesso, come hanno sempre fatto. Se il tuo accesso ha più studenti e vuoi usarle con la scelta dello studente, **elimina la voce e riaggiungila**: nel secondo passaggio scegli lo studente.
+
+Un accesso con **un solo studente** non cambia: la voce si crea come prima, senza scelte.
+
+### Accessi uguali per più persone
+
+Due voci con lo stesso codice cliente e lo stesso nome utente sono ammesse solo se leggono **studenti diversi**. Non è possibile aggiungere due volte lo stesso studente.
 ## Opzioni
 
 Le opzioni si cambiano quando vuoi, **senza rifare il login**:

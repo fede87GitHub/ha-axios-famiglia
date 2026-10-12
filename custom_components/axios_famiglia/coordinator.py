@@ -15,6 +15,8 @@ from .const import (
     CONF_COMMUNICATIONS_LIMIT,
     CONF_CUSTOMER_ID,
     CONF_PASSWORD,
+    CONF_PORTAL_STUDENT,
+    CONF_PORTAL_STUDENT_INDEX,
     CONF_REGISTER_DAYS,
     CONF_REQUEST_TIMEOUT,
     CONF_SCAN_INTERVAL,
@@ -46,6 +48,13 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
         )
         self.request_timeout = int(options.get(CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT))
 
+        # Studente del portale a cui e' legata la voce. Assente nelle voci create prima del
+        # supporto a piu' studenti: leggono quello che il portale mostra dopo il login.
+        portal_student = entry.data.get(CONF_PORTAL_STUDENT)
+        portal_index = entry.data.get(CONF_PORTAL_STUDENT_INDEX)
+        if not isinstance(portal_index, int) or isinstance(portal_index, bool):
+            portal_index = None
+
         # Una sessione (e quindi un cookie jar) separata per ogni entry/studente
         self.session = async_create_clientsession(
             hass,
@@ -61,6 +70,8 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
             register_days=self.register_days,
             communications_limit=self.communications_limit,
             request_timeout=self.request_timeout,
+            student_name=portal_student,
+            student_index=portal_index,
         )
 
         # Rilevamento delle novita': le chiavi gia' viste sono salvate su disco,

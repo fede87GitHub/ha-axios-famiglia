@@ -3,12 +3,19 @@
     "step": {
       "user": {
         "title": "Collega Axios Famiglia",
-        "description": "Aggiungi una voce per ogni studente. Il nome dello studente è usato come prefisso per dispositivo ed entità (ad esempio sensor.axios_mario_absences).",
+        "description": "Aggiungi una voce per ogni studente. Il nome dello studente è usato come prefisso per dispositivo ed entità (ad esempio sensor.axios_mario_absences). Se l'accesso ha più studenti, nel passaggio successivo sceglierai quale mostra questa voce.",
         "data": {
           "student_name": "Nome dello studente",
           "customer_id": "Codice fiscale della scuola/cliente (CF)",
           "username": "Nome utente",
           "password": "Password"
+        }
+      },
+      "student": {
+        "title": "Scegli lo studente",
+        "description": "Questo accesso ha più studenti. Scegli quello che mostrerà questa voce. Per aggiungere gli altri, ripeti la procedura con lo stesso accesso e un nome studente diverso.",
+        "data": {
+          "portal_student": "Studente sul portale"
         }
       }
     },
@@ -16,11 +23,15 @@
       "cannot_connect": "Impossibile connettersi ad Axios",
       "invalid_auth": "Credenziali non valide",
       "invalid_name": "Inserisci un nome studente valido",
+      "name_in_use": "Esiste già uno studente con questo nome. Scegli un nome diverso.",
+      "student_not_found": "Lo studente scelto non è stato trovato sul portale. Riprova.",
+      "student_not_selected": "Il portale non ha confermato il cambio di studente. Controlla i log di Home Assistant e segnala il problema.",
       "rvt_not_found": "Accesso riuscito ma non è stato trovato un token di sicurezza necessario. Controlla i log di Home Assistant per i dettagli e segnala il problema.",
       "init_sequence_failed": "Accesso riuscito ma un passaggio di inizializzazione necessario è fallito. Controlla i log di Home Assistant (cerca 'dashboard init call') e segnala il problema."
     },
     "abort": {
-      "already_configured": "Account già configurato"
+      "already_configured": "Account già configurato",
+      "all_students_configured": "Tutti gli studenti di questo accesso sono già configurati"
     }
   },
   "options": {

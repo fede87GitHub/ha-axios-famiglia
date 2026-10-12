@@ -35,6 +35,7 @@ Dettagli e tema chiaro in [Entità](https://github.com/fede87GitHub/ha-axios-fam
 | **Evento per le notifiche** | Un'entità che scatta a ogni novità, con un messaggio già pronto da inviare su Telegram, sul telefono o dove preferisci. |
 | **Più studenti** | Una voce di configurazione per ogni studente, ciascuna con il proprio dispositivo e le proprie opzioni. |
 | **Opzioni modificabili** | Intervallo di aggiornamento, giorni di registro, numero di comunicazioni e timeout si cambiano senza rifare il login. |
+| **Più studenti sullo stesso accesso**: una voce per ogni figlio, ciascuna con il proprio dispositivo e le proprie entità. |
 
 ## Avvio rapido
 
@@ -60,7 +61,7 @@ Tutti i passaggi, con i dettagli, sono nella [guida all'installazione](https://g
 - I dati arrivano dall'analisi delle pagine web del portale, quindi dipendono dalla loro struttura.
 - Sono lette solo le sezioni **Comunicazioni**, **Assenze** e **Registro di classe**. Voti, pagelle e altre sezioni non sono ancora supportati.
 - Del registro di classe sono considerati solo gli ultimi giorni scelti nelle opzioni (14 di default, al massimo 90).
-- Ogni voce di configurazione gestisce un solo accesso al portale.
+- Ogni voce di configurazione legge **un solo studente**. Con più studenti sullo stesso accesso si aggiunge una voce per ciascuno, e ogni voce accede al portale per conto suo.
 - Il pannello trova le entità dal loro ID standard: se rinomini un'entità, il pannello non la legge più.
 - Tema e lingua del pannello sono salvati per dispositivo e non si sincronizzano.
 - Gli allegati si aprono solo per le comunicazioni che ne hanno. Se la comunicazione ha più allegati, viene registrata la lettura solo per quello che apri.

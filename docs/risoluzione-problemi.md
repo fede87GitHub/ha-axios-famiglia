@@ -12,6 +12,10 @@
 | **Token di sicurezza non trovato** | L'accesso è riuscito ma la pagina del portale non contiene il token atteso: il portale potrebbe aver cambiato struttura. Apri una segnalazione. |
 | **Inserisci un nome studente valido** | Il nome non contiene lettere o numeri utilizzabili per gli ID delle entità. |
 | **Account già configurato** | Esiste già una voce con lo stesso codice cliente e lo stesso nome utente. |
+| **Lo studente scelto non è stato trovato sul portale** | Il nome scelto non è più nell'elenco dell'accesso. Riprova dall'inizio; se succede a una voce già creata, vedi sotto. |
+| **Il portale non ha confermato il cambio di studente** | L'integrazione ha chiesto il cambio di studente ma il portale non lo ha confermato. Attiva i [log di debug](#log-di-debug) e apri una segnalazione. |
+| **Esiste già uno studente con questo nome** | Scegli un nome diverso: il nome dello studente è il prefisso delle entità e deve essere unico. |
+| **Tutti gli studenti di questo accesso sono già configurati** | Non c'è nessun altro studente da aggiungere con questo accesso. |
 
 ## Il pannello non compare nella barra laterale
 
@@ -82,6 +86,27 @@ Quando apri una segnalazione sugli allegati **non incollare** link, nomi dei fil
 - Riavvia Home Assistant: il solo ricaricamento non rilegge i file Python modificati.
 - Ricarica la pagina del browser senza cache (Ctrl+F5).
 - Con HACS, se la pagina del repository mostra una descrizione vecchia, usa **⋮ → Aggiorna informazioni**.
+
+## Ho più studenti e vedo i dati di quello sbagliato, o di nessuno
+
+Con un accesso a più studenti, ogni voce deve essere legata a uno studente.
+
+1. Apri **Impostazioni → Dispositivi e servizi → Axios Famiglia** e controlla che ci sia **una voce per ogni studente**, con nomi diversi.
+2. Una voce creata prima della versione 1.5.0 non è legata a nessuno studente e legge quello che il portale mostra dopo l'accesso. **Eliminala e riaggiungila**, scegliendo lo studente nel secondo passaggio.
+3. Se una voce non si aggiorna, nei log compare uno di questi messaggi:
+
+| Riga | Cosa dice |
+|---|---|
+| `The student of this entry is not among the N students of the account` | Lo studente a cui la voce è legata non c'è più nell'elenco del portale. Elimina la voce e riaggiungila. |
+| `The portal did not confirm the change of student` | Il portale non ha confermato il cambio. |
+| `the answer does not allow to confirm it` | Il portale ha risposto al cambio ma in un formato che non permette di verificarlo: l'integrazione prosegue, ma controlla che i dati siano quelli giusti. |
+| `the portal did not list the students of the account` | Il portale non ha elencato gli studenti: la voce usa lo studente che il portale mostra. |
+
+Con i log di debug attivi trovi anche `switching to the student in position N of M` e `the wanted student ... is already the active one`. Per riservatezza i log riportano solo la posizione dello studente, mai il suo nome.
+
+## Le voci si disconnettono a vicenda
+
+Ogni voce fa un proprio accesso al portale. Se il portale terminasse la sessione precedente quando se ne apre una nuova per lo stesso utente, le voci si disconnetterebbero a vicenda: nei log di debug vedresti `Axios login: starting fresh login` a ogni aggiornamento, per entrambe. L'integrazione si riprende da sola, ma fa più richieste del necessario. Se lo vedi, apri una segnalazione e indica quante voci hai.
 
 ## Log di debug
 
