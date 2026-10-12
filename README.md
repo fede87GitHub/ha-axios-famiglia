@@ -29,7 +29,7 @@ Dettagli e tema chiaro in [Entità](https://github.com/fede87GitHub/ha-axios-fam
 | | |
 |---|---|
 | **Pannello nella barra laterale** | Una plancia dedicata, con tema chiaro e scuro, in italiano e in inglese, che funziona anche da telefono. |
-| **Allegati delle comunicazioni**: un clic su una comunicazione, nel pannello, apre il PDF allegato. |
+| **Allegati delle comunicazioni**: un clic su una comunicazione, nel pannello, apre il PDF allegato. Di base la segna come letta sul portale, come quando apri l'allegato dal sito; si può spegnere dalle impostazioni del pannello. |
 | **Sensori** | Conteggi e elenchi: comunicazioni (anche non lette), assenze, ritardi, uscite anticipate, percentuale di assenze, compiti, annotazioni, note disciplinari, ultimi argomenti. |
 | **Calendari** | Cinque calendari: assenze e uscite, compiti e verifiche, annotazioni e note, comunicazioni, argomenti svolti. |
 | **Evento per le notifiche** | Un'entità che scatta a ogni novità, con un messaggio già pronto da inviare su Telegram, sul telefono o dove preferisci. |
@@ -63,14 +63,15 @@ Tutti i passaggi, con i dettagli, sono nella [guida all'installazione](https://g
 - Ogni voce di configurazione gestisce un solo accesso al portale.
 - Il pannello trova le entità dal loro ID standard: se rinomini un'entità, il pannello non la legge più.
 - Tema e lingua del pannello sono salvati per dispositivo e non si sincronizzano.
-- Gli allegati si aprono solo per le comunicazioni che ne hanno. Aprirli dal pannello **non segna la comunicazione come letta** sul portale.
+- Gli allegati si aprono solo per le comunicazioni che ne hanno. Se la comunicazione ha più allegati, viene registrata la lettura solo per quello che apri.
 
 ## Privacy e sicurezza
 
 - Le credenziali del portale restano nella configurazione locale di Home Assistant e vengono inviate **solo ad Axios**, per l'accesso.
 - Per impostazione predefinita il pannello è visibile a **tutti gli utenti** di Home Assistant. Contiene dati scolastici di un minore: se vuoi limitarlo agli amministratori, leggi [Il pannello](https://github.com/fede87GitHub/ha-axios-famiglia/blob/main/docs/pannello.md).
 - Quando apri una segnalazione **non incollare mai** password, cookie, token, catture di rete (HAR) né dati personali dello studente o dei docenti.
-- Aprendo un allegato, il file arriva **direttamente dal sito che lo ospita** al tuo browser, senza passare da Home Assistant e senza essere salvato. Chi può vedere il pannello può aprire gli allegati: per limitarlo agli amministratori leggi [Il pannello](https://github.com/fede87GitHub/ha-axios-famiglia/blob/main/docs/pannello.md#aprire-gli-allegati).
+- Aprendo un allegato dal pannello la comunicazione risulta, di base, **letta sul portale**, con data e ora, a nome del genitore che ha fatto l'accesso. La scuola può vederlo. Si può spegnere dalle impostazioni del pannello. Chi può vedere il pannello può aprire gli allegati: per limitarlo agli amministratori leggi [Il pannello](https://github.com/fede87GitHub/ha-axios-famiglia/blob/main/docs/pannello.md#aprire-gli-allegati).
+- Il file arriva **direttamente dal sito che lo ospita** al tuo browser, senza passare da Home Assistant e senza essere salvato.
 
 ## Contribuire
 

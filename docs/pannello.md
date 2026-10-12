@@ -86,21 +86,33 @@ Nella scheda **Comunicazioni** ogni riquadro è cliccabile, e a destra compare l
 | Il portale **non risponde** | Compare l'avviso "Impossibile aprire l'allegato". Riprova più tardi. |
 | Il browser **blocca** la nuova scheda | Compare un avviso con il link "Apri l'allegato": toccalo per aprire il PDF. |
 
-Come funziona, in breve:
+### La comunicazione risulta letta
+
+Di base, aprire un allegato dal pannello fa quello che fa il clic sull'allegato nel sito: **la comunicazione viene segnata come letta sul portale**, con data e ora, a nome del genitore che ha fatto l'accesso. La scuola può quindi vedere che è stata letta.
+
+- Succede solo quando un allegato viene **davvero aperto**. Vedere l'elenco o scegliere tra più allegati non registra nulla.
+- Con più allegati, la lettura riguarda quello che apri.
+- Subito dopo l'apertura il pannello aggiorna i dati, quindi il contatore delle non lette si abbassa in pochi secondi.
+- Se la registrazione della lettura non riesce, l'allegato si apre comunque, e la comunicazione resta non letta.
+
+**Per aprire gli allegati senza segnare la lettura**, apri le impostazioni del pannello (icona a cursori in alto a destra) e spegni **Segna come letta all'apertura**, nella sezione *Comunicazioni*. Da quel momento, su quel dispositivo, gli allegati si aprono ma la comunicazione resta com'è sul portale. La scelta vale per il dispositivo e il browser in cui la fai: su un altro dispositivo va fatta di nuovo.
+
+Se la voce è grigia e riporta "Non disponibile: la registrazione della lettura è disattivata nell'integrazione", chi gestisce Home Assistant ha spento la registrazione per tutti: vedi più sotto.
+
+### Spegnere la registrazione della lettura per tutti
+
+Per impedire che la lettura venga mai registrata, da qualunque dispositivo, imposta `MARK_AS_READ = False` in `custom_components/axios_famiglia/api.py` e riavvia Home Assistant. L'interruttore nelle impostazioni del pannello diventa non disponibile e gli allegati si aprono senza registrare nulla. La modifica va rifatta dopo ogni aggiornamento, perché il file viene sostituito.
+
+### Come funziona
 
 - L'integrazione chiede al portale un **link temporaneo**. Dopo pochi minuti il link non funziona più, quindi ogni apertura ne chiede uno nuovo.
 - Il PDF viene scaricato dal tuo browser **direttamente dal sito che lo ospita**. Non passa da Home Assistant e non viene salvato.
 - Il sito che ospita il file non riceve l'indirizzo di Home Assistant.
 - Ogni apertura fa alcune richieste in più al portale con le tue credenziali.
 
-### Cosa non fa
-
-- **Non segna la comunicazione come letta sul portale.** Se la scuola chiede la presa visione, va confermata dal portale. Nel pannello e nel contatore la comunicazione resta "non letta" finché non la leggi lì.
-- Non salva né mostra il testo della comunicazione: apre solo l'allegato.
-
 ### Chi può aprire gli allegati
 
-Per impostazione predefinita il pannello è visibile a tutti gli utenti di Home Assistant, e quindi chiunque lo apra può aprire gli allegati. Per limitare pannello e allegati agli amministratori imposta `PANEL_REQUIRE_ADMIN = True` in `custom_components/axios_famiglia/panel.py` e riavvia Home Assistant.
+Per impostazione predefinita il pannello è visibile a tutti gli utenti di Home Assistant, e quindi chiunque lo apra può aprire gli allegati **e, se l'interruttore è acceso, segnare le comunicazioni come lette**. Per limitare pannello e allegati agli amministratori imposta `PANEL_REQUIRE_ADMIN = True` in `custom_components/axios_famiglia/panel.py` e riavvia Home Assistant. L'interruttore delle impostazioni è invece disponibile a tutti, perché vale solo per il dispositivo di chi lo usa.
 
 ### Il PDF si scarica invece di aprirsi
 
@@ -108,14 +120,14 @@ Dipende da come il sito che ospita i file consegna il documento: alcuni lo mostr
 
 ## Impostazioni del pannello
 
-L'icona a cursori in alto a destra apre le impostazioni.
-
 | Impostazione | Valori |
 |---|---|
 | **Tema** | Sistema, Chiaro, Scuro |
 | **Lingua** | Sistema, English, Italiano |
+| **Segna come letta all'apertura** | Attivo (predefinito), Spento |
 
 - Con **Sistema** il tema segue quello chiaro o scuro di Home Assistant, e la lingua segue quella del tuo profilo.
+- **Segna come letta all'apertura** decide se aprire un allegato registra anche la lettura sul portale: vedi [Aprire gli allegati](#aprire-gli-allegati).
 - Le preferenze valgono **solo per il dispositivo e il browser** in cui le imposti e non cambiano il profilo di Home Assistant. Su telefono e computer vanno scelte separatamente.
 - Gli **amministratori** trovano nel menu anche il collegamento alle [opzioni dell'integrazione](configurazione.md#opzioni).
 - Il menu si chiude con la X, toccando fuori oppure con il tasto Esc.

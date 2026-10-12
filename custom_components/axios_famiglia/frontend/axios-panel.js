@@ -6,6 +6,7 @@
 
 const WS_STUDENTS = "axios_famiglia/students";
 const WS_ATTACHMENT = "axios_famiglia/attachment";
+const WS_CAPABILITIES = "axios_famiglia/capabilities";
 const STORE_KEY = "axios_famiglia_student";
 const PREFS_KEY = "axios_famiglia_prefs";
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // dati "non recenti" dopo 6 ore
@@ -25,6 +26,9 @@ const TEXT = {
     system: "Sistema", light: "Chiaro", dark: "Scuro",
     integration: "Opzioni dell'integrazione",
     deviceOnly: "Le preferenze valgono solo per questo dispositivo.",
+    commSection: "COMUNICAZIONI", markRead: "Segna come letta all'apertura",
+    markReadHint: "Aprendo un allegato la comunicazione risulta letta sul portale, con data e ora. La scuola può vederlo.",
+    markReadLocked: "Non disponibile: la registrazione della lettura è disattivata nell'integrazione.",
     openAttachment: "Apri l'allegato", opening: "Apro l'allegato…", noAttachment: "Questa comunicazione non ha allegati.",
     attachError: "Impossibile aprire l'allegato. Riprova più tardi.", chooseAttachment: "Scegli l'allegato",
     popupBlocked: "Il browser ha bloccato l'apertura della nuova scheda.", openLink: "Apri l'allegato",
@@ -47,6 +51,9 @@ const TEXT = {
     system: "System", light: "Light", dark: "Dark",
     integration: "Integration options",
     deviceOnly: "Preferences apply to this device only.",
+    commSection: "COMMUNICATIONS", markRead: "Mark as read when opened",
+    markReadHint: "Opening an attachment marks the communication as read on the portal, with date and time. The school can see it.",
+    markReadLocked: "Not available: marking as read is turned off in the integration.",
     openAttachment: "Open the attachment", opening: "Opening the attachment…", noAttachment: "This communication has no attachments.",
     attachError: "Could not open the attachment. Try again later.", chooseAttachment: "Choose the attachment",
     popupBlocked: "The browser blocked the new tab.", openLink: "Open the attachment",
@@ -137,6 +144,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._choose = null; // {commId, attachments:[{id,name}]} quando una comunicazione ha piu' allegati
     this._toast = null; // {text, link?}
     this._toastTimer = null;
+    this._caps = { markAsRead: true }; // cosa consente l'integrazione (si aggiorna in _init)
     this._prefs = this._loadPrefs();
     this._onKey = (e) => {
       if (e.key !== "Escape") return;
@@ -174,13 +182,14 @@ class AxiosFamigliaPanel extends HTMLElement {
     else this._maybeRender();
   }
 
-  // ---------- preferenze (tema e lingua), salvate per dispositivo ----------
+  // ---------- preferenze (tema, lingua, lettura), salvate per dispositivo ----------
   _loadPrefs() {
-    const out = { theme: "system", lang: "system" };
+    const out = { theme: "system", lang: "system", markRead: true };
     try {
       const raw = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
       if (["system", "light", "dark"].includes(raw.theme)) out.theme = raw.theme;
       if (["system", "en", "it"].includes(raw.lang)) out.lang = raw.lang;
+      if (typeof raw.markRead === "boolean") out.markRead = raw.markRead;
     } catch (_e) { /* ignora */ }
     return out;
   }
@@ -199,6 +208,10 @@ class AxiosFamigliaPanel extends HTMLElement {
   get _loc() { return this._lang === "it" ? "it-IT" : "en-GB"; }
   _t() { return TEXT[this._lang]; }
 
+  // La lettura si registra solo se la vuoi tu (impostazione del pannello) E la consente l'integrazione
+  get _markReadLocked() { return this._caps.markAsRead === false; }
+  get _markReadOn() { return !!this._prefs.markRead && !this._markReadLocked; }
+
   async _init() {
     this._render(true);
     try {
@@ -208,6 +221,10 @@ class AxiosFamigliaPanel extends HTMLElement {
       this._students = [];
     }
     if (!this._students.length) this._students = this._discover();
+    try {
+      const caps = await this._hass.callWS({ type: WS_CAPABILITIES });
+      if (caps && typeof caps.mark_as_read === "boolean") this._caps = { markAsRead: caps.mark_as_read };
+    } catch (_e) { /* predefinito: consentita */ }
     let saved = null;
     try { saved = localStorage.getItem(STORE_KEY); } catch (_e) { /* ignora */ }
     this._student = this._students.find((s) => s.slug === saved)?.slug || this._students[0]?.slug || null;
@@ -399,7 +416,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._choose = null;
     this._showToast(t.opening, { sticky: true });
     try {
-      const msg = { type: WS_ATTACHMENT, entry_id: student.entry_id, post_id: String(commId) };
+      const msg = { type: WS_ATTACHMENT, entry_id: student.entry_id, post_id: String(commId), mark_read: this._markReadOn };
       if (attachmentId) msg.attachment_id = String(attachmentId);
       const res = await this._hass.callWS(msg);
       if (res && res.status === "ok") {
@@ -442,7 +459,12 @@ class AxiosFamigliaPanel extends HTMLElement {
     else if (act === "toastclose") this._hideToast();
     else if (act === "settings") { this._settingsOpen = true; this._render(false); }
     else if (act === "close") { this._settingsOpen = false; this._render(false); }
-    else if (act === "pref") {
+    else if (act === "toggleread") {
+      if (this._markReadLocked) return;
+      this._prefs = { ...this._prefs, markRead: !this._prefs.markRead };
+      this._savePrefs();
+      this._render(false);
+    } else if (act === "pref") {
       if (group !== "theme" && group !== "lang") return;
       this._prefs = { ...this._prefs, [group]: val };
       this._savePrefs();
@@ -627,6 +649,11 @@ class AxiosFamigliaPanel extends HTMLElement {
     const t = this._t();
     const p = this._prefs;
     const opt = (group, value, inner, label) => `<button class="opt ${p[group] === value ? "on" : ""}" data-act="pref" data-group="${group}" data-val="${value}" aria-pressed="${p[group] === value}">${inner}<span>${label}</span></button>`;
+    const locked = this._markReadLocked;
+    const on = this._markReadOn;
+    const readSwitch = `<button class="switch ${on ? "on" : ""}" data-act="toggleread" role="switch" aria-checked="${on}"${locked ? " disabled" : ""}>
+          <span class="swtxt"><b>${t.markRead}</b><small>${locked ? t.markReadLocked : t.markReadHint}</small></span>
+          <span class="sw" aria-hidden="true"><i></i></span></button>`;
     return `<div class="overlay" role="dialog" aria-modal="true" aria-label="${esc(t.settings)}">
       <div class="backdrop" data-act="close"></div>
       <div class="sheet card">
@@ -643,6 +670,8 @@ class AxiosFamigliaPanel extends HTMLElement {
           ${opt("lang", "en", '<b class="code">EN</b>', "English")}
           ${opt("lang", "it", '<b class="code">IT</b>', "Italiano")}
         </div>
+        <div class="ssec">${t.commSection}</div>
+        ${readSwitch}
         ${isAdmin ? `<button class="linkrow" data-act="integration">${this._icon("sliders", 18)}<span>${t.integration}</span>${this._icon("ext", 16)}</button>` : ""}
         <p class="hint">${t.deviceOnly}</p>
       </div>
@@ -772,6 +801,17 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .opt{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px;border-radius:16px;background:var(--chip);border:2px solid transparent;font-size:12px;font-weight:700;color:var(--muted);text-align:center}
 .opt.on{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 12%,var(--card))}
 .opt .code{display:grid;place-items:center;width:20px;height:20px;font-size:12px;font-weight:800;letter-spacing:.03em}
+.switch{display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;border-radius:16px;background:var(--chip);border:2px solid transparent}
+.switch.on{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:color-mix(in srgb,var(--accent) 9%,var(--card))}
+.switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.switch:disabled{opacity:.6;cursor:not-allowed}
+.swtxt{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.swtxt b{font-size:13px;font-weight:700}
+.swtxt small{font-size:11px;font-weight:600;line-height:1.4;color:var(--muted)}
+.sw{flex:0 0 auto;position:relative;width:46px;height:28px;border-radius:14px;background:color-mix(in srgb,var(--muted) 45%,var(--card));transition:background .15s ease}
+.sw i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s ease}
+.switch.on .sw{background:var(--accent)}
+.switch.on .sw i{transform:translateX(18px)}
 .linkrow{display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;padding:12px 14px;border-radius:16px;background:var(--chip);font-size:13px;font-weight:700}
 .linkrow:first-of-type{margin-top:18px}
 .linkrow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;word-break:break-word}

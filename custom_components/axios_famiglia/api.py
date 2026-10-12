@@ -55,8 +55,11 @@ OLD_WEEK_CACHE_SECONDS = 6 * 60 * 60
 # Flusso del browser (verificato con "Copy as fetch", ottobre 2026):
 #   1. POST SD/SD_Ajax_Get.aspx?Action=BACHECA_VISUALIZZA_CIRCOLARE&Others=<id>|undefined|MHx8fHw=|
 #      body {}  ->  HTML della comunicazione, con un pulsante per ogni allegato (attributi data-*).
-#   2. Il browser chiama anche SAVE_READER_POST: quella chiamata segna la comunicazione come
-#      LETTA sul portale. Qui NON viene chiamata.
+#   2. POST SD/SD_Ajax_Post.aspx?Action=SAVE_READER_POST
+#      body: JSON {fiPostId, root, folder, filename, SourceFileName, fileType}
+#      ->  registra la lettura: la comunicazione risulta LETTA sul portale (con data e ora) per il
+#          genitore che ha fatto l'accesso. Si chiama solo quando un allegato viene davvero aperto
+#          (non quando si sta solo scegliendo tra piu' allegati) e solo se MARK_AS_READ e' True.
 #   3. POST COMMON/COMMON_Ajax_Get.aspx?action=DOWNLOAD_PREPARE_URL
 #      body: base64 di un JSON {url, root, folder, filename, SourceFileName, fileType}
 #      ->  {"errorcode":"0", "json":"<indirizzo temporaneo firmato dello storage>"}
@@ -64,8 +67,10 @@ OLD_WEEK_CACHE_SECONDS = 6 * 60 * 60
 #   scade dopo pochi minuti ed e' una "chiave": non va mai salvato, registrato nei log o
 #   mostrato a chi non ha cliccato.
 SD_AJAX_GET_PATH = "/Pages/SD/SD_Ajax_Get.aspx"
+SD_AJAX_POST_PATH = "/Pages/SD/SD_Ajax_Post.aspx"
 COMMON_AJAX_GET_PATH = "/Pages/COMMON/COMMON_Ajax_Get.aspx"
 VIEW_CIRCULAR_ACTION = "BACHECA_VISUALIZZA_CIRCOLARE"
+SAVE_READER_ACTION = "SAVE_READER_POST"
 DOWNLOAD_PREPARE_ACTION = "DOWNLOAD_PREPARE_URL"
 VIEW_CIRCULAR_BODY = "{}"
 # Nel browser il secondo valore e' "undefined" (parametro JavaScript assente)
@@ -73,6 +78,16 @@ VIEW_CIRCULAR_BODY = "{}"
 VIEW_CIRCULAR_OTHERS_SUFFIX = "|undefined|MHx8fHw=|"
 DOWNLOAD_HANDLER_URL = "../../Handlers/SD_UploadDownloadHandler.aspx"
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
+# Interruttore GENERALE della registrazione della lettura (chiamata SAVE_READER_POST).
+# True: aprendo un allegato la comunicazione puo' essere segnata come LETTA sul portale, come quando
+# si clicca l'allegato nel sito. Ogni dispositivo la attiva o la spegne dalle impostazioni del
+# pannello ("Segna come letta all'apertura", di base attiva).
+# False: la lettura non viene MAI registrata, qualunque sia la scelta nel pannello (dove la voce
+# risulta "non disponibile"). L'allegato si apre comunque.
+MARK_AS_READ = True
+# Il browser invia questa chiamata con l'intestazione Content-Type valorizzata letteralmente "json"
+# (non e' un refuso: e' quello che si vede in "Copy as fetch"). Si replica cosi'.
+SAVE_READER_CONTENT_TYPE = "json"
 # Lo storage consegna il file come "scarica" (Content-Disposition: attachment). Con True si
 # aggiunge "&inline" all'indirizzo, che di norma chiede di aprirlo nel visualizzatore del
 # browser. Non e' stato verificato con questo storage: lasciare False se non serve.
@@ -81,6 +96,7 @@ OPEN_PDF_INLINE = False
 _POST_ID_RE = re.compile(r"^[0-9]{1,15}$")
 _MAX_ATTACHMENTS = 20
 _MAX_URL_LENGTH = 4096
+_MAX_POST_REF_LENGTH = 200
 
 
 def _diag_headers(headers) -> dict[str, str]:
@@ -89,6 +105,11 @@ def _diag_headers(headers) -> dict[str, str]:
 
 def _today() -> date:
     return datetime.now().astimezone().date()
+
+
+def mark_as_read_allowed() -> bool:
+    """True when the integration allows registering the reading (MARK_AS_READ)."""
+    return bool(MARK_AS_READ)
 
 
 class AxiosApiError(Exception):
@@ -417,12 +438,20 @@ class AxiosFamigliaClient:
 
     # ------------------------------------------------------------------ allegati
     @_wrap_network_errors
-    async def _post_text(self, url: URL | str, *, accept: str, body: str, what: str) -> str:
+    async def _post_text(
+        self,
+        url: URL | str,
+        *,
+        accept: str,
+        body: str,
+        what: str,
+        content_type: str = FORM_CONTENT_TYPE,
+    ) -> str:
         """POST like the browser does for the SD_* / COMMON_* endpoints; returns the body text."""
         headers = {
             "Accept": accept,
             "Accept-Language": self._ACCEPT_LANGUAGE,
-            "Content-Type": FORM_CONTENT_TYPE,
+            "Content-Type": content_type,
             "Priority": "u=1, i",
             "User-Agent": self._USER_AGENT,
             "X-Requested-With": "XMLHttpRequest",
@@ -483,6 +512,39 @@ class AxiosFamigliaClient:
             await self.login()
             return await self._fetch_attachments(post_id)
 
+    async def _mark_as_read(self, attachment: dict[str, str]) -> bool:
+        """Register the reading on the portal (SAVE_READER_POST), like the browser does.
+
+        Never raises: if it fails the attachment is opened anyway. Returns True when the
+        portal confirmed the reading.
+        """
+        if not MARK_AS_READ:
+            return False
+        body = build_save_reader_body(attachment)
+        if body is None:
+            _LOGGER.debug(
+                "Axios attachment: the page has no post reference, the communication is not marked as read"
+            )
+            return False
+        try:
+            raw = await self._post_text(
+                f"{BASE_URL}{SD_AJAX_POST_PATH}?Action={SAVE_READER_ACTION}",
+                accept="application/json, text/javascript, */*; q=0.01",
+                body=body,
+                what=SAVE_READER_ACTION,
+                content_type=SAVE_READER_CONTENT_TYPE,
+            )
+            check_save_reader_response(raw)
+        except AxiosApiError as err:
+            _LOGGER.warning(
+                "Axios: the communication could not be marked as read (%s). "
+                "The attachment is opened anyway.",
+                err,
+            )
+            return False
+        _LOGGER.debug("Axios attachment: the communication was marked as read")
+        return True
+
     async def _prepare_download(self, attachment: dict[str, str]) -> str:
         raw = await self._post_text(
             f"{BASE_URL}{COMMON_AJAX_GET_PATH}?action={DOWNLOAD_PREPARE_ACTION}",
@@ -495,14 +557,22 @@ class AxiosFamigliaClient:
         return url
 
     async def async_open_attachment(
-        self, post_id: str, attachment_id: str | None = None
+        self,
+        post_id: str,
+        attachment_id: str | None = None,
+        mark_read: bool | None = None,
     ) -> dict[str, Any]:
         """Prepare the opening of the attachment of a communication.
+
+        `mark_read` is the choice made in the settings of the panel on that device:
+        False -> the reading is not registered; True or None -> it is registered, unless
+        the general switch MARK_AS_READ is off.
 
         Returns one of:
           {"status": "none"}                                  no attachment
           {"status": "choose", "attachments": [{id, name}]}   several attachments: choose one
-          {"status": "ok", "url": ..., "name": ...}           temporary link, valid a few minutes
+          {"status": "ok", "url": ..., "name": ..., "marked_read": bool}
+                                                              temporary link, valid a few minutes
 
         Raises ValueError for an invalid id and AxiosApiError when the portal fails.
         """
@@ -526,8 +596,14 @@ class AxiosFamigliaClient:
                 )
                 if chosen is None:
                     raise AxiosApiError("Attachment not found in the communication")
+            marked_read = False if mark_read is False else await self._mark_as_read(chosen)
             url = await self._prepare_download(chosen)
-        return {"status": "ok", "url": apply_inline(url), "name": chosen["name"]}
+        return {
+            "status": "ok",
+            "url": apply_inline(url),
+            "name": chosen["name"],
+            "marked_read": marked_read,
+        }
 
 
 def _text(node: Any) -> str:
@@ -589,6 +665,7 @@ def parse_attachments(raw_html: str) -> list[dict[str, str]]:
     """Attachments of a communication page: one download button each (attributes data-*).
 
     Values are stripped: the portal writes them as data-root=' 123 ' with spaces inside the quotes.
+    The attribute postId (lowercased by the parser) is the reference needed by SAVE_READER_POST.
     """
     soup = BeautifulSoup(raw_html, "html.parser")
     found: list[dict[str, str]] = []
@@ -615,12 +692,14 @@ def parse_attachments(raw_html: str) -> list[dict[str, str]]:
         name = name or attr(node, "title") or filename
         if not source:
             source = base64.b64encode(name.encode("utf-8")).decode("ascii")
+        post_ref = attr(node, "postid") or attr(node, "data-postid")
         found.append({
             "root": root,
             "folder": folder,
             "filename": filename,
             "source": source,
             "file_type": attr(node, "data-filetype") or "0",
+            "post_ref": post_ref[:_MAX_POST_REF_LENGTH],
             "name": name[:200],
         })
         if len(found) >= _MAX_ATTACHMENTS:
@@ -640,6 +719,41 @@ def build_download_body(attachment: dict[str, str]) -> str:
     }
     text = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+def build_save_reader_body(attachment: dict[str, str]) -> str | None:
+    """Body of SAVE_READER_POST: a compact JSON, keys in the browser's order.
+
+    None when the page did not carry the post reference (fiPostId): without it the call
+    cannot be made.
+    """
+    post_ref = attachment.get("post_ref", "")
+    if not post_ref:
+        return None
+    payload = {
+        "fiPostId": post_ref,
+        "root": attachment["root"],
+        "folder": attachment["folder"],
+        "filename": attachment["filename"],
+        "SourceFileName": attachment["source"],
+        "fileType": attachment["file_type"],
+    }
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+
+def check_save_reader_response(raw: str) -> None:
+    """The response of SAVE_READER_POST is {"errorcode":"0", "errormsg":"Errore [{0}] - {1}", "json":""}.
+
+    The errormsg is a placeholder template and is present even on success: only errorcode counts.
+    """
+    try:
+        payload = json.loads(raw)
+    except ValueError as err:
+        raise AxiosApiError("Invalid (non-JSON) response for SAVE_READER_POST") from err
+    if not isinstance(payload, dict):
+        raise AxiosApiError("Unexpected JSON response for SAVE_READER_POST")
+    if str(payload.get("errorcode", "0")) != "0":
+        raise AxiosApiError(str(payload.get("errormsg", "Unknown Axios error")))
 
 
 def parse_download_url(raw: str) -> str:

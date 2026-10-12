@@ -36,7 +36,21 @@
 | Non succede nulla toccando una comunicazione | Ricarica la pagina senza cache (Ctrl+F5). Le comunicazioni senza un identificativo numerico non sono cliccabili. |
 | Nell'app per telefono non si apre la scheda | Alcune app non permettono nuove finestre: compare l'avviso con il link, da toccare per aprire il PDF nel browser del telefono. |
 
-Con i log di debug attivi trovi righe come:
+## La comunicazione resta "non letta" dopo aver aperto l'allegato
+
+1. Apri le impostazioni del pannello e controlla che **Segna come letta all'apertura** sia acceso. È una scelta per dispositivo: se l'hai spenta su quel telefono o su quel browser, la lettura non viene registrata.
+2. Se la voce è grigia ("Non disponibile…"), la registrazione è disattivata per tutti in `api.py` (`MARK_AS_READ = False`).
+3. Se l'interruttore è acceso, l'allegato si apre anche quando la registrazione della lettura non riesce. Controlla nei log:
+
+| Riga | Cosa dice |
+|---|---|
+| `the communication could not be marked as read (...)` | Il portale ha rifiutato la registrazione della lettura. Il motivo è tra parentesi. L'allegato si è aperto comunque. |
+| `the page has no post reference, the communication is not marked as read` | (solo con i log di debug) La pagina della comunicazione non conteneva il riferimento necessario alla registrazione. |
+| `the communication was marked as read` | (solo con i log di debug) Il portale ha confermato la lettura. |
+
+Se la lettura risulta registrata sul portale ma il pannello mostra ancora "non letta", attendi qualche secondo: i dati si aggiornano subito dopo l'apertura, ma l'aggiornamento richiede un po' di tempo. In ogni caso si riallineano al successivo aggiornamento periodico.
+
+Con i log di debug attivi trovi anche:
 
 | Riga | Cosa dice |
 |---|---|

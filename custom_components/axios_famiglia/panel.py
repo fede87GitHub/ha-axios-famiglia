@@ -11,7 +11,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import slugify
 
-from .api import AxiosApiError
+from .api import AxiosApiError, mark_as_read_allowed
 from .const import CONF_STUDENT_NAME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ PANEL_FILE = "axios-panel.js"
 STATIC_URL = f"/{DOMAIN}_static"
 WS_STUDENTS = f"{DOMAIN}/students"
 WS_ATTACHMENT = f"{DOMAIN}/attachment"
+WS_CAPABILITIES = f"{DOMAIN}/capabilities"
 
 _STATE_KEY = f"{DOMAIN}_panel_state"
 
@@ -50,6 +51,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     if not state["ws"]:
         websocket_api.async_register_command(hass, ws_students)
         websocket_api.async_register_command(hass, ws_attachment)
+        websocket_api.async_register_command(hass, ws_capabilities)
         state["ws"] = True
 
     if not state["static"]:
@@ -97,12 +99,20 @@ def ws_students(hass: HomeAssistant, connection: websocket_api.ActiveConnection,
     connection.send_result(msg["id"], students)
 
 
+@websocket_api.websocket_command({vol.Required("type"): WS_CAPABILITIES})
+@callback
+def ws_capabilities(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Cosa consente l'integrazione: il pannello lo usa per mostrare le impostazioni giuste."""
+    connection.send_result(msg["id"], {"mark_as_read": mark_as_read_allowed()})
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): WS_ATTACHMENT,
         vol.Required("entry_id"): str,
         vol.Required("post_id"): str,
         vol.Optional("attachment_id"): str,
+        vol.Optional("mark_read"): bool,
     }
 )
 @websocket_api.async_response
@@ -111,9 +121,10 @@ async def ws_attachment(
 ) -> None:
     """Prepara l'apertura dell'allegato di una comunicazione.
 
+    `mark_read` (facoltativo) e' la scelta fatta nelle impostazioni del pannello su quel dispositivo.
     La risposta e' {"status": "none"}, {"status": "choose", "attachments": [...]} oppure
-    {"status": "ok", "url": ..., "name": ...}: l'indirizzo e' temporaneo e va aperto subito,
-    senza salvarlo.
+    {"status": "ok", "url": ..., "name": ..., "marked_read": bool}: l'indirizzo e' temporaneo
+    e va aperto subito, senza salvarlo.
     """
     if PANEL_REQUIRE_ADMIN and not connection.user.is_admin:
         connection.send_error(msg["id"], websocket_api.ERR_UNAUTHORIZED, "Admin access required")
@@ -126,12 +137,19 @@ async def ws_attachment(
         return
 
     try:
-        result = await client.async_open_attachment(msg["post_id"], msg.get("attachment_id"))
+        result = await client.async_open_attachment(
+            msg["post_id"], msg.get("attachment_id"), msg.get("mark_read")
+        )
     except ValueError:
         connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Invalid communication id")
     except AxiosApiError as err:
-        # Il messaggio dettagliato resta nei log di debug; al pannello va un testo generico
+        # Il messaggio dettagliato resta nei log; al pannello va un testo generico
         _LOGGER.warning("Axios: could not prepare the attachment: %s", err)
         connection.send_error(msg["id"], "portal_error", "The portal did not return the attachment")
     else:
+        # Prima la risposta al pannello (la scheda del PDF e' in attesa), poi, in secondo piano,
+        # un aggiornamento: se la comunicazione e' stata segnata come letta, i contatori delle
+        # non lette si allineano subito invece che al prossimo giro (fino a 30 minuti dopo).
         connection.send_result(msg["id"], result)
+        if result.get("marked_read"):
+            hass.async_create_task(coordinator.async_request_refresh())
