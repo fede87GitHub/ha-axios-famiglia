@@ -40,16 +40,16 @@ _MESSAGES: dict[str, dict[str, str]] = {
     "it": {
         EVENT_NEW_COMMUNICATION: "Nuova comunicazione: {title}",
         EVENT_NEW_ABSENCE: "Nuova voce in Assenze ({date}): {description}",
-        EVENT_NEW_HOMEWORK: "Nuovi compiti ({date}): {text}",
-        EVENT_NEW_TEST: "Nuova verifica ({date}): {text}",
+        EVENT_NEW_HOMEWORK: "Nuovi compiti di {subject} ({date}): {text}",
+        EVENT_NEW_TEST: "Nuova verifica di {subject} ({date}): {text}",
         EVENT_NEW_ANNOTATION: "Nuova annotazione ({date}): {text}",
         EVENT_NEW_NOTE: "Nuova nota disciplinare ({date}): {text}",
     },
     "en": {
         EVENT_NEW_COMMUNICATION: "New communication: {title}",
         EVENT_NEW_ABSENCE: "New entry in Absences ({date}): {description}",
-        EVENT_NEW_HOMEWORK: "New homework ({date}): {text}",
-        EVENT_NEW_TEST: "New test ({date}): {text}",
+        EVENT_NEW_HOMEWORK: "New {subject} homework ({date}): {text}",
+        EVENT_NEW_TEST: "New {subject} test ({date}): {text}",
         EVENT_NEW_ANNOTATION: "New annotation ({date}): {text}",
         EVENT_NEW_NOTE: "New disciplinary note ({date}): {text}",
     },
@@ -163,20 +163,44 @@ def collect_items(data: dict[str, Any]) -> list[dict[str, Any]]:
             },
         })
 
+    for row in (data.get("schoolwork") or {}).get("items", []):
+        raw_date = row.get("date", "")
+        subject = row.get("subject", "")
+        text = row.get("text", "")
+        kind = row.get("type")
+        if not text or kind not in ("homework", "test"):
+            continue
+        event_type = EVENT_NEW_HOMEWORK if kind == "homework" else EVENT_NEW_TEST
+        prefix = "hw" if kind == "homework" else "test"
+        add({
+            "key": f"{prefix}:{raw_date}:{_hash(subject)}:{_hash(text)}",
+            "type": event_type,
+            "day": parse_date(raw_date),
+            "text": text,
+            "attributes": {
+                "date": raw_date,
+                "subject": subject,
+                "text": text,
+                "author": row.get("author", ""),
+            },
+        })
+    # Notes and annotations still come from the weekly register table.
     for day in (data.get("register") or {}).get("days", []):
         raw_date = day.get("date", "")
         parsed = parse_date(raw_date)
-        for field, event_type, prefix in _REGISTER_FIELDS:
+        for field, event_type, prefix in (
+            ("annotations", EVENT_NEW_ANNOTATION, "ann"),
+            ("disciplinary_notes", EVENT_NEW_NOTE, "note"),
+        ):
             text = day.get(field, "")
-            if not text:
-                continue
-            add({
-                "key": f"{prefix}:{raw_date}:{_hash(text)}",
-                "type": event_type,
-                "day": parsed,
-                "text": text,
-                "attributes": {"date": raw_date, "text": text},
-            })
+            if text:
+                add({
+                    "key": f"{prefix}:{raw_date}:{_hash(text)}",
+                    "type": event_type,
+                    "day": parsed,
+                    "text": text,
+                    "attributes": {"date": raw_date, "text": text},
+                })
 
     return items
 
@@ -231,7 +255,8 @@ def calendar_entries(
             summary = _short(item["text"], 80)
             description = "\n".join(p for p in (header, item["text"]) if p)
         else:
-            summary = f"{labels[item['type']]}: {_short(item['text'], 80)}"
+            subject = item["attributes"].get("subject", "")
+            summary = f"{labels[item['type']]}: {subject}" if subject else labels[item["type"]]
             description = item["text"]
         entries.append({
             "uid": item["key"],
@@ -244,46 +269,44 @@ def calendar_entries(
 
 
 def topic_entries(data: dict[str, Any], language: str | None) -> list[dict[str, Any]]:
-    """One all-day calendar entry per register day that has lesson topics."""
+    """One all-day entry per structured topic/subject."""
     label = _CALENDAR_LABELS[_lang(language)]["topics"]
     entries: list[dict[str, Any]] = []
-    seen_uids: set[str] = set()
-    for day in (data.get("register") or {}).get("days", []):
-        topics = day.get("topics", "")
-        raw_date = day.get("date", "")
+    seen: set[str] = set()
+    for row in (data.get("topics") or {}).get("items", []):
+        raw_date = row.get("date", "")
+        subject = row.get("subject", "")
+        text = row.get("text", "")
         parsed = parse_date(raw_date)
-        if not topics or parsed is None:
+        if parsed is None or not text:
             continue
-        uid = f"topics:{raw_date}"
-        if uid in seen_uids:
+        uid = f"topics:{raw_date}:{_hash(subject)}:{_hash(text)}"
+        if uid in seen:
             continue
-        seen_uids.add(uid)
+        seen.add(uid)
         entries.append({
             "uid": uid,
             "start": parsed,
             "end": parsed + timedelta(days=1),
-            "summary": f"{label}: {_short(topics, 80)}",
-            "description": topics,
+            "summary": f"{label}: {subject}" if subject else label,
+            "description": text,
         })
     return entries
 
 
 def latest_topics(data: dict[str, Any]) -> dict[str, Any] | None:
-    """The most recent register day that has lesson topics, or None."""
-    candidates: list[tuple[date | None, int, dict[str, Any]]] = []
-    for index, day in enumerate((data.get("register") or {}).get("days", [])):
-        if day.get("topics"):
-            candidates.append((parse_date(day.get("date", "")), index, day))
+    """The most recent structured topic item."""
+    candidates = []
+    for index, row in enumerate((data.get("topics") or {}).get("items", [])):
+        if row.get("text"):
+            candidates.append((parse_date(row.get("date", "")), index, row))
     if not candidates:
         return None
     dated = [c for c in candidates if c[0] is not None]
-    if dated:
-        parsed, _, day = max(dated, key=lambda c: (c[0], -c[1]))
-    else:
-        # nessuna data leggibile: il portale elenca di norma dal più recente
-        parsed, _, day = candidates[0]
+    parsed, _, row = max(dated, key=lambda c: (c[0], -c[1])) if dated else candidates[0]
     return {
-        "date": day.get("date", ""),
+        "date": row.get("date", ""),
         "iso": parsed.isoformat() if parsed else None,
-        "topics": day.get("topics", ""),
+        "topics": row.get("text", ""),
+        "subject": row.get("subject", ""),
     }

@@ -39,7 +39,7 @@ def _latest_topics_attrs(data: dict) -> dict[str, Any]:
     latest = latest_topics(data)
     if not latest:
         return {}
-    return {"data_iso": latest["iso"], "argomenti": latest["topics"]}
+    return {"data_iso": latest["iso"], "materia": latest.get("subject", ""), "argomenti": latest["topics"]}
 
 
 # I nomi visualizzati vengono da translations/<lingua>.json (entity.sensor.<key>.name)
@@ -82,10 +82,13 @@ DESCRIPTIONS: tuple[AxiosSensorDescription, ...] = (
     ),
     AxiosSensorDescription(
         key="homework", translation_key="homework", icon="mdi:notebook-edit",
-        value_fn=lambda d: d["register"]["homework_count"],
+        value_fn=lambda d: d["schoolwork"]["homework_count"] + d["schoolwork"]["test_count"],
         attrs_fn=lambda d: {
-            "giorni_considerati": d["register"]["window_days"],
-            "elenco": _without_topics(d["register"]["homework"]),
+            "giorni_considerati": d["schoolwork"]["window_days"],
+            "giorni_futuri": d["schoolwork"]["future_days"],
+            "compiti": d["schoolwork"]["homework_count"],
+            "verifiche": d["schoolwork"]["test_count"],
+            "elenco": d["schoolwork"]["items"],
         },
     ),
     AxiosSensorDescription(

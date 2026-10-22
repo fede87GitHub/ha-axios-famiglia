@@ -256,11 +256,21 @@ class AxiosFamigliaPanel extends HTMLElement {
     const comm = S("communications");
     const comms = (A(comm).elenco || []).map((c) => ({ ...c, d: parseDate(c.date) })).sort(byDateDesc);
     const unread = this._n(S("communications_unread")) ?? comms.filter((c) => c.unread).length;
-    const rows = (sensor, field) => (A(S(sensor)).elenco || []).filter((r) => r[field]).map((r) => ({ d: parseDate(r.date), text: r[field], dateText: r.date }));
-    const homework = rows("homework", "homework").sort(byDateDesc);
-    const tests = rows("homework", "tests").sort(byDateDesc);
-    const annotations = rows("annotations", "annotations").sort(byDateDesc);
-    const notes = rows("disciplinary_notes", "disciplinary_notes").sort(byDateDesc);
+    const legacyRows = (sensor, field) => (A(S(sensor)).elenco || [])
+      .filter((r) => r[field])
+      .map((r) => ({ d: parseDate(r.date), text: r[field], dateText: r.date, subject: "", author: "" }));
+    const workRaw = A(S("homework")).elenco || [];
+    const structuredWork = workRaw.some((r) => r && (r.type || r.subject || r.text));
+    const work = structuredWork
+      ? workRaw.map((r) => ({
+          d: parseDate(r.date), text: r.text || "", dateText: r.date,
+          subject: r.subject || "", author: r.author || "", type: r.type || "homework",
+        }))
+      : [];
+    const homework = (structuredWork ? work.filter((r) => r.type === "homework") : legacyRows("homework", "homework")).sort(byDateDesc);
+    const tests = (structuredWork ? work.filter((r) => r.type === "test") : legacyRows("homework", "tests")).sort(byDateDesc);
+    const annotations = legacyRows("annotations", "annotations").sort(byDateDesc);
+    const notes = legacyRows("disciplinary_notes", "disciplinary_notes").sort(byDateDesc);
     const kind = (desc) => {
       const x = String(desc || "").toLowerCase();
       if (x.includes("uscit") || x.includes("exit")) return "exit";
@@ -272,7 +282,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     let topics = this._topics[slug];
     if (!topics) {
       const txt = A(lt).argomenti;
-      topics = txt ? [{ d: parseDate(A(lt).data_iso || lt.state), text: txt }] : [];
+      topics = txt ? [{ d: parseDate(A(lt).data_iso || lt.state), text: txt, subject: A(lt).materia || "" }] : [];
     }
     topics = [...topics].sort(byDateDesc);
     const main = [S("communications"), S("absences"), S("homework"), S("last_update")];
@@ -286,7 +296,7 @@ class AxiosFamigliaPanel extends HTMLElement {
       noteCount: this._n(S("disciplinary_notes")) ?? notes.length,
       absences: this._n(S("absences")), late: this._n(S("late_entries")), exits: this._n(S("early_exits")), pct: this._n(S("absence_percentage")),
       windowDays: A(S("homework")).giorni_considerati ?? 14,
-      lastTopics: { text: A(lt).argomenti || "", d: parseDate(A(lt).data_iso || lt?.state) },
+      lastTopics: { text: A(lt).argomenti || "", subject: A(lt).materia || "", d: parseDate(A(lt).data_iso || lt?.state) },
       available, ts: Number.isFinite(ts) ? ts : null,
       stale: Number.isFinite(ts) ? Date.now() - ts > STALE_AFTER_MS : false,
     };
@@ -326,7 +336,11 @@ class AxiosFamigliaPanel extends HTMLElement {
     try {
       const ev = await this._hass.callApi("GET", `calendars/${eid}?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`);
       this._topics[slug] = (ev || [])
-        .map((e) => ({ d: parseDate(String((e.start && (e.start.date || e.start.dateTime)) || "").slice(0, 10)), text: e.description || e.summary || "" }))
+        .map((e) => {
+          const summary = String(e.summary || "");
+          const subject = summary.includes(":") ? summary.split(":").slice(1).join(":").trim() : "";
+          return { d: parseDate(String((e.start && (e.start.date || e.start.dateTime)) || "").slice(0, 10)), text: e.description || summary, subject };
+        })
         .filter((x) => x.d && x.text);
       this._topicsVersion++;
       this._maybeRender();
@@ -553,7 +567,7 @@ class AxiosFamigliaPanel extends HTMLElement {
       { id: "late", view: "absences", icon: "clock", color: "orange", value: num(m.late), cap: t.totalAbs, bar: seg((m.late || 0) / 6) },
       { id: "exits", view: "absences", icon: "exit", color: "teal", value: num(m.exits), cap: t.totalAbs, bar: seg((m.exits || 0) / 6) },
       { id: "pct", view: "absences", icon: "percent", color: "green", value: m.pct === null ? "–" : String(m.pct).replace(".", ","), unit: "%", cap: t.sinceStart, bar: seg((m.pct || 0) / 20) },
-      { id: "topics", view: "topics", icon: "openbook", color: "indigo", value: dayShort(m.lastTopics.d || m.topics[0]?.d), small: true, cap: clip(m.lastTopics.text || m.topics[0]?.text, 48) || t.none, bar: seg(m.topics.length ? 1 : 0) },
+      { id: "topics", view: "topics", icon: "openbook", color: "indigo", value: dayShort(m.lastTopics.d || m.topics[0]?.d), small: true, cap: clip([m.topics[0]?.subject, m.lastTopics.text || m.topics[0]?.text].filter(Boolean).join(": "), 48) || t.none, bar: seg(m.topics.length ? 1 : 0) },
     ];
   }
 
@@ -603,8 +617,8 @@ class AxiosFamigliaPanel extends HTMLElement {
       items = m.comms.map((c) => ({ d: c.d, tag: c.type || "", color: c.unread ? "orange" : "blue", text: c.title, commId: /^\d{1,15}$/.test(String(c.id || "")) ? String(c.id) : "", meta: [c.author ? `${t.by} ${c.author}` : "", c.unread ? t.unread : ""].filter(Boolean).join(" · "), unread: c.unread }));
     } else if (this._view === "agenda") {
       items = [
-        ...m.homework.map((x) => ({ d: x.d, tag: t.tag.homework, color: "purple", text: x.text })),
-        ...m.tests.map((x) => ({ d: x.d, tag: t.tag.test, color: "pink", text: x.text })),
+        ...m.homework.map((x) => ({ d: x.d, tag: x.subject ? `${t.tag.homework}: ${x.subject}` : t.tag.homework, color: "purple", text: x.text, meta: x.author ? `${t.by} ${x.author}` : "" })),
+        ...m.tests.map((x) => ({ d: x.d, tag: x.subject ? `${t.tag.test}: ${x.subject}` : t.tag.test, color: "pink", text: x.text, meta: x.author ? `${t.by} ${x.author}` : "" })),
       ].sort(byDateDesc);
     } else if (this._view === "notes") {
       items = [
@@ -615,7 +629,7 @@ class AxiosFamigliaPanel extends HTMLElement {
       const col = { absence: "blue", late: "orange", exit: "teal" };
       items = m.events.map((e) => ({ d: e.d, tag: t.tag[e.kind], color: col[e.kind], text: e.description, meta: e.counts === false ? t.notCounted : "" }));
     } else if (this._view === "topics") {
-      items = m.topics.map((x) => ({ d: x.d, tag: "", color: "indigo", text: x.text, topics: true }));
+      items = m.topics.map((x) => ({ d: x.d, tag: x.subject || "", color: "indigo", text: x.text, topics: true }));
     }
     const rows = items.map((it) => {
       const d = it.d;

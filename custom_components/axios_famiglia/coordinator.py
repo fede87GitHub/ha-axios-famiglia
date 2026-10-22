@@ -103,7 +103,7 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
             # Dalla v1.3.1 il registro si legge settimana per settimana. Le voci delle
             # settimane precedenti, mai viste prima, non sono novita' e vanno
             # memorizzate in silenzio al primo aggiornamento dopo l'aggiornamento.
-            "register_source": "weekly",
+            "register_source": "structured-v1",
         }
 
     async def _async_update_data(self) -> dict:

@@ -23,6 +23,7 @@ from .const import (
     DASHBOARD_INIT_ACTIONS,
     DASHBOARD_PATH_HINT,
     DEFAULT_COMMUNICATIONS_LIMIT,
+    DEFAULT_FUTURE_DAYS,
     DEFAULT_REGISTER_DAYS,
     DEFAULT_REQUEST_TIMEOUT,
     LOGIN_PATH,
@@ -46,6 +47,10 @@ _DIAG_RESPONSE_HEADERS = (
 #   body: {"fdData":"19/10/2026"}
 REGISTER_ACTION = "FAMILY_REGISTRO_CLASSE"
 REGISTER_WEEK_ACTION = "FAMILY_REGISTRO_CLASSE_SETTIMANA"
+HOMEWORK_LIST_ACTION = "FAMILY_REGISTRO_CLASSE_COMPITI_LISTA"
+TOPICS_LIST_ACTION = "FAMILY_REGISTRO_CLASSE_ARGOMENTI_LISTA"
+DATATABLE_PAGE_SIZE = 100
+DATATABLE_MAX_RECORDS = 2000
 WEEK_REQUEST_CONTENT_TYPE = "application/x-www-form-urlencoded; charset=UTF-8"
 # Le settimane piu' vecchie della precedente cambiano di rado: si rileggono ogni 6 ore.
 # La settimana precedente e quella corrente si leggono a ogni aggiornamento.
@@ -214,7 +219,7 @@ class AxiosFamigliaClient:
         session: ClientSession,
         credentials: AxiosCredentials,
         register_days: int = DEFAULT_REGISTER_DAYS,
-        future_days: int = 7,
+        future_days: int = DEFAULT_FUTURE_DAYS,
         communications_limit: int = DEFAULT_COMMUNICATIONS_LIMIT,
         request_timeout: int = DEFAULT_REQUEST_TIMEOUT,
         student_name: str | None = None,
@@ -464,6 +469,71 @@ class AxiosFamigliaClient:
             await self.login()
             return await self._raw_action(action)
 
+    async def _raw_datatable_page(self, action: str, start: int) -> dict[str, Any]:
+        """Read one structured DataTables page from Axios."""
+        headers = self._ajax_headers()
+        headers["Content-Type"] = WEEK_REQUEST_CONTENT_TYPE
+        body = json.dumps(
+            {
+                "draw": start // DATATABLE_PAGE_SIZE + 1,
+                "columns": {},
+                "order": [],
+                "start": start,
+                "length": DATATABLE_PAGE_SIZE,
+                "search": {"value": "", "regex": False},
+                "iMatId": "",
+            },
+            separators=(",", ":"),
+        )
+        url = f"{BASE_URL}{AJAX_PATH}"
+        async with self._session.post(
+            url,
+            params={"Action": action},
+            data=body.encode("utf-8"),
+            headers=headers,
+            timeout=self._timeout,
+        ) as response:
+            if response.status >= 400:
+                snippet = (await response.text())[:300]
+                raise AxiosApiError(f"{action} returned HTTP {response.status}: {snippet!r}")
+            raw = await response.text()
+        try:
+            payload = json.loads(raw)
+        except ValueError as err:
+            raise AxiosApiError(f"Invalid JSON response for {action}") from err
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            raise AxiosApiError(f"Unexpected DataTables response for {action}")
+        return payload
+
+    async def _datatable_action(self, action: str) -> list[dict[str, Any]]:
+        """Read every page of a structured Axios DataTables endpoint."""
+        if not self._logged_in:
+            await self.login()
+        try:
+            return await self._read_datatable_pages(action)
+        except AxiosApiError:
+            self._logged_in = False
+            await self.login()
+            return await self._read_datatable_pages(action)
+
+    async def _read_datatable_pages(self, action: str) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        start = 0
+        while start < DATATABLE_MAX_RECORDS:
+            page = await self._raw_datatable_page(action, start)
+            rows = [row for row in page["data"] if isinstance(row, dict)]
+            records.extend(rows)
+            try:
+                total = int(page.get("recordsFiltered", page.get("recordsTotal", len(records))))
+            except (TypeError, ValueError):
+                total = len(records)
+            if not rows or len(records) >= total:
+                break
+            start += len(rows)
+        if start >= DATATABLE_MAX_RECORDS:
+            _LOGGER.warning("Axios %s: stopped after %d records", action, len(records))
+        return records[:DATATABLE_MAX_RECORDS]
+
     async def _fetch_week(self, monday: date) -> list[dict[str, Any]]:
         """Register rows of the week starting on `monday`."""
         fd_data = monday.strftime("%d/%m/%Y")
@@ -537,7 +607,15 @@ class AxiosFamigliaClient:
             register_html = await self._action(REGISTER_ACTION)
             current_rows = parse_register_rows(register_html)
             extra_rows, complete = await self._read_extra_weeks()
+            homework_raw = await self._datatable_action(HOMEWORK_LIST_ACTION)
+            topics_raw = await self._datatable_action(TOPICS_LIST_ACTION)
         rows = merge_register_rows(current_rows, extra_rows)
+        schoolwork = build_structured_schoolwork(
+            homework_raw, self._register_days, self._future_days
+        )
+        topics = build_structured_topics(
+            topics_raw, self._register_days, self._future_days
+        )
         return {
             "communications": parse_communications(
                 communications_html, self._communications_limit
@@ -546,6 +624,8 @@ class AxiosFamigliaClient:
             "register": build_register(
                 rows, self._register_days, self._future_days, partial=not complete
             ),
+            "schoolwork": schoolwork,
+            "topics": topics,
             "updated_at": datetime.now().astimezone().isoformat(),
         }
 
@@ -1155,6 +1235,66 @@ def build_register(
         "annotations": annotations,
         "disciplinary_notes": notes,
     }
+
+
+def _clean_portal_text(value: Any) -> str:
+    """Decode Axios HTML entities and normalize whitespace without losing wording."""
+    return " ".join(html_lib.unescape(str(value or "")).split())
+
+
+def _inside_window(raw_date: str, past_days: int, future_days: int) -> bool:
+    parsed = _parse_date(raw_date)
+    if parsed is None:
+        return False
+    today = _today()
+    return today - timedelta(days=max(0, past_days)) <= parsed <= today + timedelta(days=max(0, future_days))
+
+
+def build_structured_schoolwork(
+    records: list[dict[str, Any]], past_days: int, future_days: int
+) -> dict[str, Any]:
+    """Normalize the structured homework/test endpoint, one item per subject and type."""
+    items: list[dict[str, str]] = []
+    for row in records:
+        raw_date = _clean_portal_text(row.get("giorno"))
+        if not _inside_window(raw_date, past_days, future_days):
+            continue
+        subject = _clean_portal_text(row.get("materia"))
+        author = _clean_portal_text(row.get("inserito"))
+        homework = _clean_portal_text(row.get("testo"))
+        test = _clean_portal_text(row.get("verifica"))
+        if homework:
+            items.append({"date": raw_date, "subject": subject, "text": homework, "author": author, "type": "homework"})
+        if test:
+            items.append({"date": raw_date, "subject": subject, "text": test, "author": author, "type": "test"})
+    items.sort(key=lambda x: _parse_date(x["date"]) or date.min, reverse=True)
+    return {
+        "window_days": past_days,
+        "future_days": future_days,
+        "items": items,
+        "homework_count": sum(item["type"] == "homework" for item in items),
+        "test_count": sum(item["type"] == "test" for item in items),
+    }
+
+
+def build_structured_topics(
+    records: list[dict[str, Any]], past_days: int, future_days: int
+) -> dict[str, Any]:
+    """Normalize the structured lesson-topics endpoint, one item per subject."""
+    items: list[dict[str, str]] = []
+    for row in records:
+        raw_date = _clean_portal_text(row.get("giorno"))
+        text = _clean_portal_text(row.get("testo"))
+        if not text or not _inside_window(raw_date, past_days, future_days):
+            continue
+        items.append({
+            "date": raw_date,
+            "subject": _clean_portal_text(row.get("materia")),
+            "text": text,
+            "author": _clean_portal_text(row.get("inserito")),
+        })
+    items.sort(key=lambda x: _parse_date(x["date"]) or date.min, reverse=True)
+    return {"window_days": past_days, "future_days": future_days, "items": items}
 
 
 def parse_register(
