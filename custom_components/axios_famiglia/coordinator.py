@@ -14,6 +14,7 @@ from .api import AxiosApiError, AxiosCredentials, AxiosFamigliaClient
 from .const import (
     CONF_COMMUNICATIONS_LIMIT,
     CONF_CUSTOMER_ID,
+    CONF_FUTURE_DAYS,
     CONF_PASSWORD,
     CONF_PORTAL_STUDENT,
     CONF_PORTAL_STUDENT_INDEX,
@@ -23,6 +24,7 @@ from .const import (
     CONF_STUDENT_NAME,
     CONF_USERNAME,
     DEFAULT_COMMUNICATIONS_LIMIT,
+    DEFAULT_FUTURE_DAYS,
     DEFAULT_REGISTER_DAYS,
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_SCAN_INTERVAL,
@@ -43,6 +45,7 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
         options = entry.options
         self.scan_interval = int(options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
         self.register_days = int(options.get(CONF_REGISTER_DAYS, DEFAULT_REGISTER_DAYS))
+        self.future_days = int(options.get(CONF_FUTURE_DAYS, DEFAULT_FUTURE_DAYS))
         self.communications_limit = int(
             options.get(CONF_COMMUNICATIONS_LIMIT, DEFAULT_COMMUNICATIONS_LIMIT)
         )
@@ -68,6 +71,7 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
                 password=entry.data[CONF_PASSWORD],
             ),
             register_days=self.register_days,
+            future_days=self.future_days,
             communications_limit=self.communications_limit,
             request_timeout=self.request_timeout,
             student_name=portal_student,
@@ -94,6 +98,7 @@ class AxiosFamigliaCoordinator(DataUpdateCoordinator[dict]):
         """Parametri che decidono QUALI voci vengono lette dal portale."""
         return {
             "register_days": self.register_days,
+            "future_days": self.future_days,
             "communications_limit": self.communications_limit,
             # Dalla v1.3.1 il registro si legge settimana per settimana. Le voci delle
             # settimane precedenti, mai viste prima, non sono novita' e vanno

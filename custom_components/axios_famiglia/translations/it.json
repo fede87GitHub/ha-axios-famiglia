@@ -42,6 +42,7 @@
         "data": {
           "scan_interval": "Intervallo di aggiornamento (minuti)",
           "register_days": "Giorni di registro da leggere",
+          "future_days": "Giorni futuri di registro da leggere",
           "communications_limit": "Comunicazioni da mostrare",
           "request_timeout": "Timeout delle richieste (secondi)"
         },
@@ -49,7 +50,8 @@
           "scan_interval": "Ogni quanto viene interrogato il portale. Minimo 5 minuti, per non sovraccaricarlo.",
           "register_days": "Quanti giorni recenti del registro di classe vengono usati per compiti, verifiche, annotazioni, note e argomenti (da 1 a 90).",
           "communications_limit": "Quante tra le ultime comunicazioni compaiono nell'elenco del sensore, nel calendario e nell'evento novità (da 1 a 50).",
-          "request_timeout": "Attesa massima per ogni richiesta al portale (da 10 a 120 secondi)."
+          "request_timeout": "Attesa massima per ogni richiesta al portale (da 10 a 120 secondi).",
+          "future_days": "Quanti giorni futuri del registro vengono letti per compiti, verifiche, annotazioni, note e argomenti (da 0 a 30). Sette giorni includono la settimana scolastica successiva quando necessario."
         }
       }
     }

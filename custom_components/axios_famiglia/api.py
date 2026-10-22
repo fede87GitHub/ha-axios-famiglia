@@ -214,6 +214,7 @@ class AxiosFamigliaClient:
         session: ClientSession,
         credentials: AxiosCredentials,
         register_days: int = DEFAULT_REGISTER_DAYS,
+        future_days: int = 7,
         communications_limit: int = DEFAULT_COMMUNICATIONS_LIMIT,
         request_timeout: int = DEFAULT_REQUEST_TIMEOUT,
         student_name: str | None = None,
@@ -222,6 +223,7 @@ class AxiosFamigliaClient:
         self._session = session
         self._credentials = credentials
         self._register_days = register_days
+        self._future_days = future_days
         self._communications_limit = communications_limit
         self._timeout = ClientTimeout(total=request_timeout)
         self._logged_in = False
@@ -476,15 +478,17 @@ class AxiosFamigliaClient:
             )
         return rows
 
-    async def _read_previous_weeks(self) -> tuple[list[dict[str, Any]], bool]:
-        """Rows of the previous weeks that fall in the reading window.
+    async def _read_extra_weeks(self) -> tuple[list[dict[str, Any]], bool]:
+        """Rows outside the current week that fall in the past/future windows.
 
         Returns (rows, complete). A week that cannot be read never breaks the update:
         its last known rows are used if there are any, otherwise it is skipped.
+        Past weeks older than the immediately previous one are cached for six hours;
+        the previous and future weeks are refreshed at every coordinator update.
         """
         today = _today()
         this_monday = today - timedelta(days=today.weekday())
-        mondays = past_week_mondays(today, self._register_days)
+        mondays = extra_week_mondays(today, self._register_days, self._future_days)
         for stale in [m for m in self._week_cache if m not in mondays]:
             del self._week_cache[stale]
 
@@ -532,14 +536,16 @@ class AxiosFamigliaClient:
             # weeks (if any are needed) are added after it.
             register_html = await self._action(REGISTER_ACTION)
             current_rows = parse_register_rows(register_html)
-            older_rows, complete = await self._read_previous_weeks()
-        rows = merge_register_rows(current_rows, older_rows)
+            extra_rows, complete = await self._read_extra_weeks()
+        rows = merge_register_rows(current_rows, extra_rows)
         return {
             "communications": parse_communications(
                 communications_html, self._communications_limit
             ),
             "absences": parse_absences(absences_html),
-            "register": build_register(rows, self._register_days, partial=not complete),
+            "register": build_register(
+                rows, self._register_days, self._future_days, partial=not complete
+            ),
             "updated_at": datetime.now().astimezone().isoformat(),
         }
 
@@ -1012,25 +1018,29 @@ def _parse_date(text: str) -> date | None:
     return None
 
 
-def _limit_recent_days(days: list[dict[str, Any]], limit_days: int) -> list[dict[str, Any]]:
-    """Keep only the register rows of the last `limit_days` days (newest first).
+def _limit_register_days(
+    days: list[dict[str, Any]], past_days: int, future_days: int
+) -> list[dict[str, Any]]:
+    """Keep rows inside the rolling past/future window (newest first).
 
-    If a date cannot be parsed, fall back to the first `limit_days` rows.
+    If a date cannot be parsed, fall back to the first `past_days + future_days` rows.
     """
-    if limit_days <= 0 or not days:
+    if not days:
         return days
     parsed = [(_parse_date(day["date"]), day) for day in days]
     if all(day_date is not None for day_date, _ in parsed):
-        cutoff = _today() - timedelta(days=limit_days)
-        recent = [(d, row) for d, row in parsed if d >= cutoff]
-        recent.sort(key=lambda item: item[0], reverse=True)
-        return [row for _, row in recent]
+        today = _today()
+        first_day = today - timedelta(days=max(0, past_days))
+        last_day = today + timedelta(days=max(0, future_days))
+        selected = [(d, row) for d, row in parsed if first_day <= d <= last_day]
+        selected.sort(key=lambda item: item[0], reverse=True)
+        return [row for _, row in selected]
     _LOGGER.warning(
         "Axios register: could not parse all dates (example: %r); "
         "falling back to the first %d rows",
-        days[0]["date"], limit_days,
+        days[0]["date"], past_days + future_days,
     )
-    return days[:limit_days]
+    return days[: past_days + future_days]
 
 
 def past_week_mondays(today: date, limit_days: int) -> list[date]:
@@ -1046,6 +1056,29 @@ def past_week_mondays(today: date, limit_days: int) -> list[date]:
         mondays.append(monday)
         monday += timedelta(days=7)
     return mondays
+
+
+def future_week_mondays(today: date, future_days: int) -> list[date]:
+    """Mondays of future weeks overlapping the next `future_days` days.
+
+    The current week is deliberately excluded because FAMILY_REGISTRO_CLASSE already
+    returns it. For example, on Friday with future_days=7, the next Monday is included.
+    """
+    if future_days <= 0:
+        return []
+    this_monday = today - timedelta(days=today.weekday())
+    last_day = today + timedelta(days=future_days)
+    monday = this_monday + timedelta(days=7)
+    mondays: list[date] = []
+    while monday <= last_day:
+        mondays.append(monday)
+        monday += timedelta(days=7)
+    return mondays
+
+
+def extra_week_mondays(today: date, past_days: int, future_days: int) -> list[date]:
+    """All non-current weeks required by the configured past/future windows."""
+    return past_week_mondays(today, past_days) + future_week_mondays(today, future_days)
 
 
 def parse_register_rows(raw_html: str) -> list[dict[str, Any]]:
@@ -1095,13 +1128,16 @@ def merge_register_rows(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def build_register(
-    rows: list[dict[str, Any]], limit_days: int = DEFAULT_REGISTER_DAYS, partial: bool = False
+    rows: list[dict[str, Any]],
+    limit_days: int = DEFAULT_REGISTER_DAYS,
+    future_days: int = 0,
+    partial: bool = False,
 ) -> dict[str, Any]:
     total_rows = len(rows)
-    days = _limit_recent_days(rows, limit_days)
+    days = _limit_register_days(rows, limit_days, future_days)
     _LOGGER.debug(
-        "Axios register: kept %d of %d rows (last %d days)",
-        len(days), total_rows, limit_days,
+        "Axios register: kept %d of %d rows (past %d days, future %d days)",
+        len(days), total_rows, limit_days, future_days,
     )
 
     homework = [d for d in days if d["homework"] or d["tests"]]
@@ -1109,6 +1145,7 @@ def build_register(
     notes = [d for d in days if d["disciplinary_notes"]]
     return {
         "window_days": limit_days,
+        "future_days": future_days,
         "partial": partial,
         "days": days,
         "homework_count": len(homework),
@@ -1120,6 +1157,10 @@ def build_register(
     }
 
 
-def parse_register(raw_html: str, limit_days: int = DEFAULT_REGISTER_DAYS) -> dict[str, Any]:
+def parse_register(
+    raw_html: str,
+    limit_days: int = DEFAULT_REGISTER_DAYS,
+    future_days: int = 0,
+) -> dict[str, Any]:
     """Single page (the current week): kept for compatibility."""
-    return build_register(parse_register_rows(raw_html), limit_days)
+    return build_register(parse_register_rows(raw_html), limit_days, future_days)

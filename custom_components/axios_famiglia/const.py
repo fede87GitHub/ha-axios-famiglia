@@ -17,11 +17,13 @@ CONF_PORTAL_STUDENT_INDEX = "portal_student_index"
 # --- Opzioni modificabili dall'utente (options flow) ---
 CONF_SCAN_INTERVAL = "scan_interval"  # minuti
 CONF_REGISTER_DAYS = "register_days"  # giorni di registro da considerare
+CONF_FUTURE_DAYS = "future_days"  # giorni futuri di registro da considerare
 CONF_COMMUNICATIONS_LIMIT = "communications_limit"  # comunicazioni esposte
 CONF_REQUEST_TIMEOUT = "request_timeout"  # secondi
 
 DEFAULT_SCAN_INTERVAL = 30
 DEFAULT_REGISTER_DAYS = 14
+DEFAULT_FUTURE_DAYS = 7
 DEFAULT_COMMUNICATIONS_LIMIT = 20
 DEFAULT_REQUEST_TIMEOUT = 30
 
@@ -31,6 +33,7 @@ DEFAULT_REQUEST_TIMEOUT = 30
 #   Home Assistant non salva nello storico attributi più grandi di circa 16 KB.
 MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL = 5, 1440
 MIN_REGISTER_DAYS, MAX_REGISTER_DAYS = 1, 90
+MIN_FUTURE_DAYS, MAX_FUTURE_DAYS = 0, 30
 MIN_COMMUNICATIONS_LIMIT, MAX_COMMUNICATIONS_LIMIT = 1, 50
 MIN_REQUEST_TIMEOUT, MAX_REQUEST_TIMEOUT = 10, 120
 
