@@ -125,6 +125,60 @@ function parseDate(text) {
 const byDateDesc = (a, b) => (b.d ? b.d.getTime() : -1) - (a.d ? a.d.getTime() : -1);
 const clip = (text, n) => { const t = String(text || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t; };
 
+// Testi Axios possono contenere HTML codificato (&lt;a ...&gt;, &lt;br&gt;) oppure URL nudi.
+// Renderizziamo SOLO link http/https e interruzioni di riga: ogni altro markup resta testo.
+function richText(value) {
+  let decoded = String(value ?? "");
+  const ta = document.createElement("textarea");
+  for (let i = 0; i < 2; i++) {
+    ta.innerHTML = decoded;
+    const next = ta.value;
+    if (next === decoded) break;
+    decoded = next;
+  }
+  const holder = document.createElement("div");
+  holder.innerHTML = decoded;
+  const parts = [];
+  const urlRe = /https?:\/\/[^\s<>"']+/gi;
+  const textPart = (raw) => {
+    let pos = 0;
+    for (const match of String(raw || "").matchAll(urlRe)) {
+      parts.push(esc(raw.slice(pos, match.index)));
+      let url = match[0];
+      let suffix = "";
+      while (/[),.;!?]$/.test(url)) { suffix = url.slice(-1) + suffix; url = url.slice(0, -1); }
+      try {
+        const u = new URL(url);
+        if (u.protocol === "http:" || u.protocol === "https:") {
+          const safe = esc(u.href);
+          parts.push(`<a class="textlink" href="${safe}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>${esc(suffix)}`);
+        } else parts.push(esc(match[0]));
+      } catch (_e) { parts.push(esc(match[0])); }
+      pos = match.index + match[0].length;
+    }
+    parts.push(esc(String(raw || "").slice(pos)));
+  };
+  const walk = (node) => {
+    if (node.nodeType === 3) { textPart(node.nodeValue); return; }
+    if (node.nodeType !== 1) return;
+    if (node.tagName === "BR") { parts.push("<br>"); return; }
+    if (node.tagName === "A") {
+      const rawHref = node.getAttribute("href") || "";
+      try {
+        const u = new URL(rawHref);
+        if (u.protocol === "http:" || u.protocol === "https:") {
+          const label = (node.textContent || rawHref).trim() || rawHref;
+          parts.push(`<a class="textlink" href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`);
+          return;
+        }
+      } catch (_e) { /* mostra il contenuto come testo */ }
+    }
+    for (const child of node.childNodes) walk(child);
+  };
+  for (const child of holder.childNodes) walk(child);
+  return parts.join("");
+}
+
 class AxiosFamigliaPanel extends HTMLElement {
   constructor() {
     super();
@@ -463,6 +517,7 @@ class AxiosFamigliaPanel extends HTMLElement {
 
   // ---------- eventi ----------
   _onClick(ev) {
+    if (ev.target.closest && ev.target.closest("a.textlink")) return;
     const el = ev.target.closest("[data-act]");
     if (!el) return;
     const { act, val, group } = el.dataset;
@@ -631,16 +686,16 @@ class AxiosFamigliaPanel extends HTMLElement {
     } else if (this._view === "topics") {
       items = m.topics.map((x) => ({ d: x.d, tag: x.subject || "", color: "indigo", text: x.text, topics: true }));
     }
-    // Nel tab Compiti e verifiche raggruppa solo VISIVAMENTE le voci della stessa
-    // giornata. I dati, il calendario e l'evento news restano distinti per materia/tipo.
-    // Usiamo la data locale (non toISOString) per evitare di spostare il giorno per il fuso orario.
-    if (this._view === "agenda") {
+    // Raggruppamento solo VISIVO per giornata. Dati, calendari e news restano distinti.
+    // Le comunicazioni interne mantengono il proprio post_id e restano cliccabili singolarmente.
+    const groupedViews = new Set(["comm", "agenda", "topics", "notes"]);
+    if (groupedViews.has(this._view)) {
       const groups = [];
       const byDay = new Map();
-      for (const it of items) {
+      items.forEach((it, index) => {
         const key = it.d
           ? `${it.d.getFullYear()}-${String(it.d.getMonth() + 1).padStart(2, "0")}-${String(it.d.getDate()).padStart(2, "0")}`
-          : `unknown-${groups.length}`;
+          : `unknown-${index}`;
         let group = byDay.get(key);
         if (!group) {
           group = { d: it.d, entries: [] };
@@ -648,19 +703,25 @@ class AxiosFamigliaPanel extends HTMLElement {
           groups.push(group);
         }
         group.entries.push(it);
-      }
+      });
       const rows = groups.map((group) => {
         const d = group.d;
         const day = d ? d.getDate() : "–";
         const mon = d ? d.toLocaleDateString(this._loc, { month: "short" }).replace(/\./g, "").toUpperCase() : "";
         const wd = d ? d.toLocaleDateString(this._loc, { weekday: "long" }) : "";
-        const entries = group.entries.map((it, index) => `
-          <div class="agenda-entry ${index ? "separated" : ""}" style="--entry-fg:${COLORS[it.color]}">
-            <div class="line"><span class="tag agenda-tag">${esc(it.tag)}</span></div>
-            <div class="txt">${esc(it.text)}</div>
+        const entries = group.entries.map((it, index) => {
+          const isComm = this._view === "comm" && !!it.commId;
+          const click = isComm
+            ? ` data-act="comm" data-val="${esc(it.commId)}" role="button" tabindex="0" title="${esc(t.openAttachment)}"`
+            : "";
+          return `<div class="day-entry ${index ? "separated" : ""} ${it.unread ? "unread-entry" : ""} ${isComm ? "click" : ""}" style="--entry-fg:${COLORS[it.color]}"${click}>
+            ${it.tag ? `<div class="line"><span class="tag day-tag">${esc(it.tag)}</span></div>` : ""}
+            <div class="txt">${richText(it.text)}</div>
             ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
-          </div>`).join("");
-        return `<div class="item agenda-day" style="--fg:${COLORS.purple}">
+            ${isComm ? `<span class="entry-go" aria-hidden="true">${this._icon("ext", 15)}</span>` : ""}
+          </div>`;
+        }).join("");
+        return `<div class="item grouped-day" style="--fg:${COLORS[group.entries[0]?.color || "slate"]}">
           <div class="date"><b>${day}</b><span>${mon}</span></div>
           <div class="body">
             ${wd ? `<div class="line day-line"><span class="wd">${esc(wd)}</span></div>` : ""}
@@ -676,16 +737,14 @@ class AxiosFamigliaPanel extends HTMLElement {
       const day = d ? d.getDate() : "–";
       const mon = d ? d.toLocaleDateString(this._loc, { month: "short" }).replace(/\./g, "").toUpperCase() : "";
       const wd = d ? d.toLocaleDateString(this._loc, { weekday: "long" }) : "";
-      const text = it.topics ? esc(it.text).replace(/([A-ZÀÈÉÌÒÙ][A-ZÀÈÉÌÒÙ' ]{2,}):/g, "<b>$1</b>:") : esc(it.text);
-      // Le comunicazioni si aprono con un clic: se hanno un allegato, si apre il PDF
-      const click = it.commId ? ` data-act="comm" data-val="${esc(it.commId)}" role="button" tabindex="0" title="${esc(t.openAttachment)}"` : "";
-      return `<div class="item ${it.unread ? "unread" : ""} ${it.commId ? "click" : ""}" style="--fg:${COLORS[it.color]}"${click}>
+      return `<div class="item" style="--fg:${COLORS[it.color]}">
         <div class="date"><b>${day}</b><span>${mon}</span></div>
         <div class="body">
           ${it.tag || wd ? `<div class="line">${it.tag ? `<span class="tag">${esc(it.tag)}</span>` : ""}${wd ? `<span class="wd">${esc(wd)}</span>` : ""}</div>` : ""}
-          <div class="txt">${text}</div>
+          <div class="txt">${richText(it.text)}</div>
           ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
-        </div>${it.commId ? `<span class="go" aria-hidden="true">${this._icon("ext", 16)}</span>` : ""}</div>`;
+        </div>
+      </div>`;
     }).join("");
     // Il titolo e' lo stesso testo della voce nella barra in basso
     return `<div class="sec">${t.tab[this._view]}</div>${rows || `<div class="card empty">${t.empty}</div>`}`;
@@ -836,13 +895,20 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .wd{font-size:11px;font-weight:700;color:var(--muted);text-transform:capitalize}
 .txt{font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .txt b{font-weight:800}
+.txt .textlink{color:var(--fg);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;overflow-wrap:anywhere}
+.txt .textlink:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:3px}
 .meta{margin-top:5px;font-size:11px;font-weight:600;color:var(--muted)}
-.agenda-day{align-items:flex-start}
-.agenda-day .day-line{margin-bottom:8px}
-.agenda-entry{padding:2px 0 4px}
-.agenda-entry.separated{margin-top:13px;padding-top:14px;border-top:1px solid var(--line)}
-.agenda-entry .line{margin-bottom:7px}
-.agenda-tag{color:var(--entry-fg);background:color-mix(in srgb,var(--entry-fg) 14%,var(--card))}
+.grouped-day{align-items:flex-start}
+.grouped-day .day-line{margin-bottom:8px}
+.day-entry{position:relative;padding:2px 34px 4px 0}
+.day-entry.separated{margin-top:13px;padding-top:14px;border-top:1px solid var(--line)}
+.day-entry .line{margin-bottom:7px}
+.day-tag{color:var(--entry-fg);background:color-mix(in srgb,var(--entry-fg) 14%,var(--card))}
+.day-entry.click{cursor:pointer;border-radius:12px;transition:background .12s ease}
+.day-entry.click:hover{background:color-mix(in srgb,var(--entry-fg) 7%,transparent)}
+.day-entry.click:focus-visible{outline:2px solid var(--entry-fg);outline-offset:2px}
+.day-entry.unread-entry{box-shadow:inset 3px 0 0 var(--entry-fg);padding-left:10px}
+.entry-go{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--muted);background:var(--chip)}
 .empty{padding:28px;text-align:center;color:var(--muted);font-weight:600}
 .navwrap{flex:0 0 auto;padding:4px 14px calc(14px + env(safe-area-inset-bottom,0px))}
 .nav{display:flex;gap:4px;padding:8px;overflow-x:auto;scrollbar-width:none;border-radius:26px}
