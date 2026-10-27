@@ -631,6 +631,46 @@ class AxiosFamigliaPanel extends HTMLElement {
     } else if (this._view === "topics") {
       items = m.topics.map((x) => ({ d: x.d, tag: x.subject || "", color: "indigo", text: x.text, topics: true }));
     }
+    // Nel tab Compiti e verifiche raggruppa solo VISIVAMENTE le voci della stessa
+    // giornata. I dati, il calendario e l'evento news restano distinti per materia/tipo.
+    // Usiamo la data locale (non toISOString) per evitare di spostare il giorno per il fuso orario.
+    if (this._view === "agenda") {
+      const groups = [];
+      const byDay = new Map();
+      for (const it of items) {
+        const key = it.d
+          ? `${it.d.getFullYear()}-${String(it.d.getMonth() + 1).padStart(2, "0")}-${String(it.d.getDate()).padStart(2, "0")}`
+          : `unknown-${groups.length}`;
+        let group = byDay.get(key);
+        if (!group) {
+          group = { d: it.d, entries: [] };
+          byDay.set(key, group);
+          groups.push(group);
+        }
+        group.entries.push(it);
+      }
+      const rows = groups.map((group) => {
+        const d = group.d;
+        const day = d ? d.getDate() : "–";
+        const mon = d ? d.toLocaleDateString(this._loc, { month: "short" }).replace(/\./g, "").toUpperCase() : "";
+        const wd = d ? d.toLocaleDateString(this._loc, { weekday: "long" }) : "";
+        const entries = group.entries.map((it, index) => `
+          <div class="agenda-entry ${index ? "separated" : ""}" style="--entry-fg:${COLORS[it.color]}">
+            <div class="line"><span class="tag agenda-tag">${esc(it.tag)}</span></div>
+            <div class="txt">${esc(it.text)}</div>
+            ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
+          </div>`).join("");
+        return `<div class="item agenda-day" style="--fg:${COLORS.purple}">
+          <div class="date"><b>${day}</b><span>${mon}</span></div>
+          <div class="body">
+            ${wd ? `<div class="line day-line"><span class="wd">${esc(wd)}</span></div>` : ""}
+            ${entries}
+          </div>
+        </div>`;
+      }).join("");
+      return `<div class="sec">${t.tab[this._view]}</div>${rows || `<div class="card empty">${t.empty}</div>`}`;
+    }
+
     const rows = items.map((it) => {
       const d = it.d;
       const day = d ? d.getDate() : "–";
@@ -797,6 +837,12 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .txt{font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .txt b{font-weight:800}
 .meta{margin-top:5px;font-size:11px;font-weight:600;color:var(--muted)}
+.agenda-day{align-items:flex-start}
+.agenda-day .day-line{margin-bottom:8px}
+.agenda-entry{padding:2px 0 4px}
+.agenda-entry.separated{margin-top:13px;padding-top:14px;border-top:1px solid var(--line)}
+.agenda-entry .line{margin-bottom:7px}
+.agenda-tag{color:var(--entry-fg);background:color-mix(in srgb,var(--entry-fg) 14%,var(--card))}
 .empty{padding:28px;text-align:center;color:var(--muted);font-weight:600}
 .navwrap{flex:0 0 auto;padding:4px 14px calc(14px + env(safe-area-inset-bottom,0px))}
 .nav{display:flex;gap:4px;padding:8px;overflow-x:auto;scrollbar-width:none;border-radius:26px}
