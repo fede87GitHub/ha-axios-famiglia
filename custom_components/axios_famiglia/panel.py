@@ -147,9 +147,9 @@ async def ws_attachment(
         _LOGGER.warning("Axios: could not prepare the attachment: %s", err)
         connection.send_error(msg["id"], "portal_error", "The portal did not return the attachment")
     else:
-        # Prima la risposta al pannello (la scheda del PDF e' in attesa), poi, in secondo piano,
-        # un aggiornamento: se la comunicazione e' stata segnata come letta, i contatori delle
-        # non lette si allineano subito invece che al prossimo giro (fino a 30 minuti dopo).
+        # Prima la risposta al pannello, che gestisce l'apertura in modo compatibile con le app
+        # mobili, poi un aggiornamento in secondo piano: se la comunicazione e' stata segnata
+        # come letta, i contatori si allineano subito invece che al prossimo aggiornamento.
         connection.send_result(msg["id"], result)
         if result.get("marked_read"):
             hass.async_create_task(coordinator.async_request_refresh())

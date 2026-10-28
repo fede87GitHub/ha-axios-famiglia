@@ -448,73 +448,135 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._render(false);
   }
 
-  // Scrive nella scheda appena aperta una pagina che porta al PDF. Il browser non invia
-  // l'indirizzo di Home Assistant al sito dell'allegato (referrer: no-referrer).
+  // Naviga direttamente la scheda pre-aperta verso l'allegato.
+  // Evita la pagina HTML intermedia che alcune WebView Android mantengono
+  // visibile nello stack quando si torna a Home Assistant.
   _launch(win, url) {
-    const t = this._t();
     try {
-      win.document.open();
-      win.document.write(
-        `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer">` +
-        `<meta http-equiv="refresh" content="0;url=${esc(url)}"><title>${esc(t.opening)}</title>` +
-        `<body style="font-family:sans-serif;padding:24px;color:#555">${esc(t.opening)} ` +
-        `<a href="${esc(url)}" rel="noreferrer noopener">${esc(t.openLink)}</a></body>`
-      );
-      win.document.close();
+      if (!win || win.closed) return false;
+      win.location.replace(url);
       return true;
     } catch (_e) {
-      try { win.location.replace(url); return true; } catch (_e2) { return false; }
+      try {
+        win.location.href = url;
+        return true;
+      } catch (_e2) {
+        return false;
+      }
     }
   }
-
   async _openAttachment(commId, attachmentId = null) {
     const t = this._t();
     if (this._busy || !commId) return;
+
     const student = (this._students || []).find((s) => s.slug === this._student);
-    if (!student || !student.entry_id) { this._showToast(t.attachError); return; }
-    // La scheda va aperta ADESSO, mentre il clic e' ancora "fresco": dopo l'attesa della risposta
-    // molti browser (Safari soprattutto) bloccherebbero l'apertura.
+    if (!student || !student.entry_id) {
+      this._showToast(t.attachError);
+      return;
+    }
+
+    // Pre-apriamo una scheda solo quando l'utente ha gia' scelto un allegato.
+    // Al primo tap non sappiamo ancora se Axios restituira' un file singolo
+    // oppure l'elenco degli allegati disponibili.
     let win = null;
-    try {
-      win = window.open("", "_blank");
-      if (win) win.opener = null;
-    } catch (_e) { win = null; }
-    const closeWin = () => { try { if (win && !win.closed) win.close(); } catch (_e) { /* ignora */ } };
+    if (attachmentId) {
+      try {
+        win = window.open("", "_blank");
+        if (win) win.opener = null;
+      } catch (_e) {
+        win = null;
+      }
+    }
+
+    const closeWin = () => {
+      try {
+        if (win && !win.closed) win.close();
+      } catch (_e) {
+        /* ignora */
+      }
+    };
+
     this._busy = true;
-    this._choose = null;
+    if (attachmentId) {
+      this._choose = null;
+      this._render(false);
+    }
     this._showToast(t.opening, { sticky: true });
+
     try {
-      const msg = { type: WS_ATTACHMENT, entry_id: student.entry_id, post_id: String(commId), mark_read: this._markReadOn };
+      const msg = {
+        type: WS_ATTACHMENT,
+        entry_id: student.entry_id,
+        post_id: String(commId),
+        mark_read: this._markReadOn,
+      };
       if (attachmentId) msg.attachment_id = String(attachmentId);
+
       const res = await this._hass.callWS(msg);
+
+      if (
+        res &&
+        res.status === "choose" &&
+        Array.isArray(res.attachments) &&
+        res.attachments.length
+      ) {
+        closeWin();
+        this._choose = {
+          commId: String(commId),
+          attachments: res.attachments.map((a) => ({
+            id: String(a.id),
+            name: String(a.name || a.id),
+          })),
+        };
+        this._hideToast();
+        this._render(false);
+        return;
+      }
+
       if (res && res.status === "ok") {
         const url = this._safeUrl(res.url);
         if (!url) throw new Error("invalid link");
-        if (win && !win.closed && this._launch(win, url)) {
-          this._hideToast();
-        } else {
-          // Scheda bloccata (o app senza finestre): un secondo tocco, che e' un clic vero, la apre
+
+        if (win && !win.closed) {
+          if (this._launch(win, url)) {
+            this._hideToast();
+            return;
+          }
           closeWin();
-          this._showToast(t.popupBlocked, { link: { url, label: t.openLink } });
+        } else {
+          let opened = null;
+          try {
+            opened = window.open(url, "_blank", "noopener,noreferrer");
+          } catch (_e) {
+            opened = null;
+          }
+          if (opened) {
+            this._hideToast();
+            return;
+          }
         }
-      } else if (res && res.status === "choose" && Array.isArray(res.attachments) && res.attachments.length) {
-        closeWin();
-        this._choose = { commId, attachments: res.attachments.map((a) => ({ id: String(a.id), name: String(a.name || a.id) })) };
-        this._hideToast();
-        this._render(false);
-      } else {
-        closeWin();
-        this._showToast(t.noAttachment);
+
+        // Se la WebView blocca l'apertura asincrona, il link richiede un
+        // secondo tap reale e non lascia una pagina intermedia nello stack.
+        this._showToast(t.popupBlocked, {
+          link: { url, label: t.openLink },
+        });
+        return;
       }
+
+      closeWin();
+      this._showToast(t.noAttachment);
     } catch (err) {
       closeWin();
-      console.warn("Axios Famiglia: allegato non aperto", err && err.code ? err.code : "");
+      console.warn(
+        "Axios Famiglia: allegato non aperto",
+        err && err.code ? err.code : ""
+      );
       this._showToast(t.attachError);
     } finally {
       this._busy = false;
     }
   }
-
   // ---------- eventi ----------
   _onClick(ev) {
     if (ev.target.closest && ev.target.closest("a.textlink")) return;
