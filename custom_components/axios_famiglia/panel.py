@@ -30,6 +30,7 @@ PANEL_FILE = "axios-panel.js"
 STATIC_URL = f"/{DOMAIN}_static"
 WS_STUDENTS = f"{DOMAIN}/students"
 WS_ATTACHMENT = f"{DOMAIN}/attachment"
+WS_MARK_READ = f"{DOMAIN}/mark_read"
 WS_CAPABILITIES = f"{DOMAIN}/capabilities"
 
 _STATE_KEY = f"{DOMAIN}_panel_state"
@@ -51,6 +52,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     if not state["ws"]:
         websocket_api.async_register_command(hass, ws_students)
         websocket_api.async_register_command(hass, ws_attachment)
+        websocket_api.async_register_command(hass, ws_mark_read)
         websocket_api.async_register_command(hass, ws_capabilities)
         state["ws"] = True
 
@@ -105,6 +107,33 @@ def ws_capabilities(hass: HomeAssistant, connection: websocket_api.ActiveConnect
     """Cosa consente l'integrazione: il pannello lo usa per mostrare le impostazioni giuste."""
     connection.send_result(msg["id"], {"mark_as_read": mark_as_read_allowed()})
 
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): WS_MARK_READ, vol.Required("entry_id"): str, vol.Required("post_id"): str}
+)
+@websocket_api.async_response
+async def ws_mark_read(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Segna una comunicazione come letta senza aprire o preparare il download dell'allegato."""
+    coordinator = (hass.data.get(DOMAIN) or {}).get(msg["entry_id"])
+    client = getattr(coordinator, "client", None)
+    if client is None:
+        connection.send_error(msg["id"], websocket_api.ERR_NOT_FOUND, "Unknown student")
+        return
+    try:
+        result = await client.async_mark_communication_read(msg["post_id"])
+    except ValueError:
+        connection.send_error(msg["id"], websocket_api.ERR_INVALID_FORMAT, "Invalid communication id")
+        return
+    except AxiosApiError as err:
+        _LOGGER.warning("Axios: could not mark communication as read: %s", err)
+        connection.send_error(msg["id"], "portal_error", "The portal did not mark the communication as read")
+        return
+    connection.send_result(msg["id"], result)
+    if result.get("marked_read"):
+        hass.async_create_task(coordinator.async_request_refresh())
 
 @websocket_api.websocket_command(
     {

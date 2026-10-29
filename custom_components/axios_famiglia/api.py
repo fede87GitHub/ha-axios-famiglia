@@ -749,6 +749,17 @@ class AxiosFamigliaClient:
         _LOGGER.debug("Axios attachment: temporary link obtained (host %s)", urlsplit(url).hostname)
         return url
 
+    async def async_mark_communication_read(self, post_id: str) -> dict[str, Any]:
+        """Mark one communication as read without preparing or opening its attachment."""
+        post_id = validate_post_id(post_id)
+        async with self._lock:
+            attachments = await self._read_attachments(post_id)
+            if not attachments:
+                return {"status": "none", "marked_read": False}
+            # SAVE_READER_POST requires the metadata of one attachment. No download URL is prepared.
+            marked_read = await self._mark_as_read(attachments[0])
+        return {"status": "ok", "marked_read": marked_read}
+
     async def async_open_attachment(
         self,
         post_id: str,

@@ -6,6 +6,7 @@
 
 const WS_STUDENTS = "axios_famiglia/students";
 const WS_ATTACHMENT = "axios_famiglia/attachment";
+const WS_MARK_READ = "axios_famiglia/mark_read";
 const WS_CAPABILITIES = "axios_famiglia/capabilities";
 const STORE_KEY = "axios_famiglia_student";
 const PREFS_KEY = "axios_famiglia_prefs";
@@ -29,7 +30,7 @@ const TEXT = {
     commSection: "COMUNICAZIONI", markRead: "Segna come letta all'apertura",
     markReadHint: "Aprendo un allegato la comunicazione risulta letta sul portale, con data e ora. La scuola può vederlo.",
     markReadLocked: "Non disponibile: la registrazione della lettura è disattivata nell'integrazione.",
-    openAttachment: "Apri l'allegato", opening: "Apro l'allegato…", noAttachment: "Questa comunicazione non ha allegati.",
+    openAttachment: "Apri l'allegato", markCommunicationRead: "Segna come letta", markedCommunicationRead: "Comunicazione segnata come letta.", markingRead: "Segno come letta…", opening: "Apro l'allegato…", noAttachment: "Questa comunicazione non ha allegati.",
     attachError: "Impossibile aprire l'allegato. Riprova più tardi.", chooseAttachment: "Scegli l'allegato",
     popupBlocked: "Il browser ha bloccato l'apertura della nuova scheda.", openLink: "Apri l'allegato",
     tab: { home: "HOME", comm: "COMUNICAZIONI", agenda: "COMPITI E VERIFICHE", topics: "ARGOMENTI", absences: "ASSENZE E USCITE", notes: "ANNOTAZIONI E NOTE" },
@@ -54,7 +55,7 @@ const TEXT = {
     commSection: "COMMUNICATIONS", markRead: "Mark as read when opened",
     markReadHint: "Opening an attachment marks the communication as read on the portal, with date and time. The school can see it.",
     markReadLocked: "Not available: marking as read is turned off in the integration.",
-    openAttachment: "Open the attachment", opening: "Opening the attachment…", noAttachment: "This communication has no attachments.",
+    openAttachment: "Open the attachment", markCommunicationRead: "Mark as read", markedCommunicationRead: "Communication marked as read.", markingRead: "Marking as read…", opening: "Opening the attachment…", noAttachment: "This communication has no attachments.",
     attachError: "Could not open the attachment. Try again later.", chooseAttachment: "Choose the attachment",
     popupBlocked: "The browser blocked the new tab.", openLink: "Open the attachment",
     tab: { home: "HOME", comm: "COMMUNICATIONS", agenda: "HOMEWORK AND TESTS", topics: "LESSON TOPICS", absences: "ABSENCES AND EXITS", notes: "ANNOTATIONS AND NOTES" },
@@ -428,6 +429,27 @@ class AxiosFamigliaPanel extends HTMLElement {
   }
 
   // ---------- allegati delle comunicazioni ----------
+  async _markCommunicationRead(commId) {
+    const t = this._t();
+    if (this._busy || !commId) return;
+    const student = (this._students || []).find((s) => s.slug === this._student);
+    if (!student || !student.entry_id) { this._showToast(t.attachError); return; }
+    this._busy = true;
+    this._showToast(t.markingRead, { sticky: true });
+    try {
+      await this._hass.callWS({
+        type: WS_MARK_READ,
+        entry_id: student.entry_id,
+        post_id: String(commId),
+      });
+      this._showToast(t.markedCommunicationRead);
+    } catch (err) {
+      console.warn("Axios Famiglia: comunicazione non segnata come letta", err && err.code ? err.code : "");
+      this._showToast(t.attachError);
+    } finally {
+      this._busy = false;
+    }
+  }
   _safeUrl(value) {
     try {
       const u = new URL(String(value));
@@ -585,6 +607,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     const { act, val, group } = el.dataset;
     if (act === "menu") this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true }));
     else if (act === "comm") this._openAttachment(val);
+    else if (act === "markread") this._markCommunicationRead(val);
     else if (act === "attach") this._openAttachment(this._choose && this._choose.commId, val);
     else if (act === "closechoose") { this._choose = null; this._render(false); }
     else if (act === "toastclose") this._hideToast();
@@ -780,7 +803,7 @@ class AxiosFamigliaPanel extends HTMLElement {
             ${it.tag ? `<div class="line"><span class="tag day-tag">${esc(it.tag)}</span></div>` : ""}
             <div class="txt">${richText(it.text)}</div>
             ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
-            ${isComm ? `<span class="entry-go" aria-hidden="true">${this._icon("ext", 15)}</span>` : ""}
+            ${isComm ? `<span class="entry-actions"><button class="mark-read" data-act="markread" data-val="${esc(it.commId)}" title="${esc(t.markCommunicationRead)}" aria-label="${esc(t.markCommunicationRead)}">${this._icon("check", 15)}</button><span class="entry-go" aria-hidden="true">${this._icon("ext", 15)}</span></span>` : ""}
           </div>`;
         }).join("");
         return `<div class="item grouped-day" style="--fg:${COLORS[group.entries[0]?.color || "slate"]}">
@@ -970,7 +993,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .day-entry.click:hover{background:color-mix(in srgb,var(--entry-fg) 7%,transparent)}
 .day-entry.click:focus-visible{outline:2px solid var(--entry-fg);outline-offset:2px}
 .day-entry.unread-entry{box-shadow:inset 3px 0 0 var(--entry-fg);padding-left:10px}
-.entry-go{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--muted);background:var(--chip)}
+.entry-actions{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;gap:6px;align-items:center}.mark-read{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:#18a058;background:var(--chip)}.entry-go{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--muted);background:var(--chip)}
 .empty{padding:28px;text-align:center;color:var(--muted);font-weight:600}
 .navwrap{flex:0 0 auto;padding:4px 14px calc(14px + env(safe-area-inset-bottom,0px))}
 .nav{display:flex;gap:4px;padding:8px;overflow-x:auto;scrollbar-width:none;border-radius:26px}
