@@ -193,6 +193,7 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._topicsStamp = {};
     this._topicsFail = {};
     this._topicsVersion = 0;
+    this._readOverrides = new Set();
     this._clock = null;
     this._settingsOpen = false;
     this._busy = false; // apertura di un allegato in corso
@@ -309,8 +310,21 @@ class AxiosFamigliaPanel extends HTMLElement {
     const S = (k, dom = "sensor") => this._s(slug, dom, k);
     const A = (st) => (st && st.attributes) || {};
     const comm = S("communications");
-    const comms = (A(comm).elenco || []).map((c) => ({ ...c, d: parseDate(c.date) })).sort(byDateDesc);
-    const unread = this._n(S("communications_unread")) ?? comms.filter((c) => c.unread).length;
+    const sourceComms = A(comm).elenco || [];
+    // Mantiene il feedback immediato dopo SAVE_READER_POST mentre il coordinator
+    // riallinea in background le entity Home Assistant con il portale Axios.
+    for (const id of [...this._readOverrides]) {
+      const portalItem = sourceComms.find((c) => String(c.id || "") === id);
+      if (portalItem && !portalItem.unread) this._readOverrides.delete(id);
+    }
+    const comms = sourceComms.map((c) => {
+      const id = String(c.id || "");
+      return { ...c, unread: this._readOverrides.has(id) ? false : !!c.unread, d: parseDate(c.date) };
+    }).sort(byDateDesc);
+    const unreadSensor = this._n(S("communications_unread"));
+    const unread = this._readOverrides.size
+      ? comms.filter((c) => c.unread).length
+      : (unreadSensor ?? comms.filter((c) => c.unread).length);
     const legacyRows = (sensor, field) => (A(S(sensor)).elenco || [])
       .filter((r) => r[field])
       .map((r) => ({ d: parseDate(r.date), text: r[field], dateText: r.date, subject: "", author: "" }));
@@ -437,11 +451,14 @@ class AxiosFamigliaPanel extends HTMLElement {
     this._busy = true;
     this._showToast(t.markingRead, { sticky: true });
     try {
-      await this._hass.callWS({
+      const res = await this._hass.callWS({
         type: WS_MARK_READ,
         entry_id: student.entry_id,
         post_id: String(commId),
       });
+      if (!res || res.marked_read !== true) throw new Error("mark read not confirmed");
+      this._readOverrides.add(String(commId));
+      this._sig = "";
       this._showToast(t.markedCommunicationRead);
     } catch (err) {
       console.warn("Axios Famiglia: comunicazione non segnata come letta", err && err.code ? err.code : "");
@@ -803,7 +820,7 @@ class AxiosFamigliaPanel extends HTMLElement {
             ${it.tag ? `<div class="line"><span class="tag day-tag">${esc(it.tag)}</span></div>` : ""}
             <div class="txt">${richText(it.text)}</div>
             ${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
-            ${isComm ? `<span class="entry-actions"><button class="mark-read" data-act="markread" data-val="${esc(it.commId)}" title="${esc(t.markCommunicationRead)}" aria-label="${esc(t.markCommunicationRead)}">${this._icon("check", 15)}</button><span class="entry-go" aria-hidden="true">${this._icon("ext", 15)}</span></span>` : ""}
+            ${isComm ? `<span class="entry-actions">${it.unread ? `<button class="mark-read" data-act="markread" data-val="${esc(it.commId)}" title="${esc(t.markCommunicationRead)}" aria-label="${esc(t.markCommunicationRead)}">${this._icon("check", 15)}</button>` : ""}<span class="entry-go" aria-hidden="true">${this._icon("ext", 15)}</span></span>` : ""}
           </div>`;
         }).join("");
         return `<div class="item grouped-day" style="--fg:${COLORS[group.entries[0]?.color || "slate"]}">
@@ -985,7 +1002,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .meta{margin-top:5px;font-size:11px;font-weight:600;color:var(--muted)}
 .grouped-day{align-items:flex-start}
 .grouped-day .day-line{margin-bottom:8px}
-.day-entry{position:relative;padding:2px 34px 4px 0}
+.day-entry{position:relative;padding:2px 46px 4px 0}
 .day-entry.separated{margin-top:13px;padding-top:14px;border-top:1px solid var(--line)}
 .day-entry .line{margin-bottom:7px}
 .day-tag{color:var(--entry-fg);background:color-mix(in srgb,var(--entry-fg) 14%,var(--card))}
@@ -993,7 +1010,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;text-a
 .day-entry.click:hover{background:color-mix(in srgb,var(--entry-fg) 7%,transparent)}
 .day-entry.click:focus-visible{outline:2px solid var(--entry-fg);outline-offset:2px}
 .day-entry.unread-entry{box-shadow:inset 3px 0 0 var(--entry-fg);padding-left:10px}
-.entry-actions{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;gap:6px;align-items:center}.mark-read{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:#18a058;background:var(--chip)}.entry-go{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--muted);background:var(--chip)}
+.entry-actions{position:absolute;right:4px;top:4px;display:flex;flex-direction:column;gap:6px;align-items:center}.mark-read{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:#18a058;background:var(--chip)}.entry-go{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;color:var(--muted);background:var(--chip)}
 .empty{padding:28px;text-align:center;color:var(--muted);font-weight:600}
 .navwrap{flex:0 0 auto;padding:4px 14px calc(14px + env(safe-area-inset-bottom,0px))}
 .nav{display:flex;gap:4px;padding:8px;overflow-x:auto;scrollbar-width:none;border-radius:26px}

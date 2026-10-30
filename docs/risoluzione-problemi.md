@@ -40,11 +40,12 @@
 | Non succede nulla toccando una comunicazione | Ricarica la pagina senza cache (Ctrl+F5). Le comunicazioni senza un identificativo numerico non sono cliccabili. |
 | Nell'app per telefono non si apre la scheda | Alcune app non permettono nuove finestre: compare l'avviso con il link, da toccare per aprire il PDF nel browser del telefono. |
 
-## La comunicazione resta "non letta" dopo aver aperto l'allegato
+## La comunicazione resta "non letta" dopo averla segnata come letta o dopo aver aperto l'allegato
 
-1. Apri le impostazioni del pannello e controlla che **Segna come letta all'apertura** sia acceso. È una scelta per dispositivo: se l'hai spenta su quel telefono o su quel browser, la lettura non viene registrata.
-2. Se la voce è grigia ("Non disponibile…"), la registrazione è disattivata per tutti in `api.py` (`MARK_AS_READ = False`).
-3. Se l'interruttore è acceso, l'allegato si apre anche quando la registrazione della lettura non riesce. Controlla nei log:
+1. Se hai usato il pulsante con il segno di spunta, verifica che il pannello mostri la conferma **Comunicazione segnata come letta**. Il pulsante non apre né scarica l'allegato.
+2. Se hai aperto un allegato, apri le impostazioni del pannello e controlla che **Segna come letta all'apertura** sia acceso. È una scelta per dispositivo: se l'hai spenta su quel telefono o browser, l'apertura non registra la lettura.
+3. Se la voce è grigia ("Non disponibile…"), la registrazione è disattivata per tutti in `api.py` (`MARK_AS_READ = False`).
+4. L'allegato può aprirsi anche quando la registrazione della lettura non riesce. Controlla nei log:
 
 | Riga | Cosa dice |
 |---|---|
@@ -52,7 +53,7 @@
 | `the page has no post reference, the communication is not marked as read` | (solo con i log di debug) La pagina della comunicazione non conteneva il riferimento necessario alla registrazione. |
 | `the communication was marked as read` | (solo con i log di debug) Il portale ha confermato la lettura. |
 
-Se la lettura risulta registrata sul portale ma il pannello mostra ancora "non letta", attendi qualche secondo: i dati si aggiornano subito dopo l'apertura, ma l'aggiornamento richiede un po' di tempo. In ogni caso si riallineano al successivo aggiornamento periodico.
+Se la lettura risulta registrata sul portale ma il pannello mostra ancora "non letta", ricarica il pannello e controlla che sia in uso la versione aggiornata di `axios-panel.js`. Dopo la conferma del portale, il pannello aggiorna subito lo stato locale; il coordinator richiede inoltre un aggiornamento per riallineare le entità Home Assistant. Se il portale continua a restituire temporaneamente il vecchio stato, il riallineamento definitivo avviene al successivo aggiornamento riuscito.
 
 Con i log di debug attivi trovi anche:
 
@@ -79,7 +80,7 @@ Quando apri una segnalazione sugli allegati **non incollare** link, nomi dei fil
 - **Notifica per una voce vecchia dopo aver cambiato le opzioni:** l'integrazione le memorizza senza notificarle. Se è comunque arrivata, segnalalo.
 - **Nessuna notifica per una voce appena comparsa:** una voce nuova comparsa nel momento esatto in cui salvi le opzioni può non essere notificata.
 - **Notifiche doppie:** controlla di non avere due automazioni che si innescano sullo stesso evento.
-- **Nessuna notifica per gli argomenti:** è voluto, gli argomenti non generano eventi.
+- **Nessuna notifica per un argomento già presente:** alla prima lettura e quando cambia la finestra del registro, gli argomenti già presenti vengono memorizzati senza notifiche retroattive.
 
 ## Dopo un aggiornamento qualcosa non torna
 

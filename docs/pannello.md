@@ -68,11 +68,24 @@ Sotto il titolo "Widget" una riga riassume quanti widget **richiedono attenzione
 
 Ogni voce ha un riquadro con il **giorno e il mese**, un'**etichetta** del tipo (per esempio "Circolare", "Compiti", "Uscita"), il **giorno della settimana** e il testo. Le voci sono ordinate dalla più recente.
 
-- Le **comunicazioni non lette** hanno un bordo colorato a sinistra e la scritta "NON LETTA".
+- Le **comunicazioni non lette** hanno un bordo colorato a sinistra, la scritta "NON LETTA" e il pulsante con il segno di spunta per registrare la lettura senza aprire l'allegato.
 - Le assenze non conteggiate dal portale riportano "non conteggiata".
 - Negli **argomenti** i nomi delle materie sono in grassetto.
 
 ![Argomenti svolti](images/topics-light.png)
+
+## Segnare una comunicazione come letta senza aprirla
+
+Nella scheda **Comunicazioni**, le comunicazioni non lette mostrano a destra un pulsante con il segno di spunta, sopra l'icona di apertura.
+
+Toccando il segno di spunta:
+
+- la comunicazione viene segnata come letta sul portale Axios senza aprire o scaricare alcun allegato;
+- la lettura viene registrata con data e ora, a nome del genitore che ha effettuato l'accesso, ed è visibile alla scuola;
+- dopo la conferma del portale, la scritta **NON LETTA** e il pulsante scompaiono subito dal pannello;
+- il contatore delle comunicazioni non lette viene aggiornato e i dati vengono poi riallineati con il portale.
+
+Il pulsante non compare sulle comunicazioni già lette. L'icona di apertura resta disponibile per aprire gli allegati.
 
 ## Aprire gli allegati
 
@@ -86,7 +99,7 @@ Nella scheda **Comunicazioni** ogni riquadro è cliccabile, e a destra compare l
 | Il portale **non risponde** | Compare l'avviso "Impossibile aprire l'allegato". Riprova più tardi. |
 | Il browser **blocca** la nuova scheda | Compare un avviso con il link "Apri l'allegato": toccalo per aprire il PDF. |
 
-### La comunicazione risulta letta
+### Marcatura automatica quando apri un allegato
 
 Di base, aprire un allegato dal pannello fa quello che fa il clic sull'allegato nel sito: **la comunicazione viene segnata come letta sul portale**, con data e ora, a nome del genitore che ha fatto l'accesso. La scuola può quindi vedere che è stata letta.
 
@@ -110,9 +123,9 @@ Per impedire che la lettura venga mai registrata, da qualunque dispositivo, impo
 - Il sito che ospita il file non riceve l'indirizzo di Home Assistant.
 - Ogni apertura fa alcune richieste in più al portale con le tue credenziali.
 
-### Chi può aprire gli allegati
+### Chi può aprire gli allegati e segnare le comunicazioni come lette
 
-Per impostazione predefinita il pannello è visibile a tutti gli utenti di Home Assistant, e quindi chiunque lo apra può aprire gli allegati **e, se l'interruttore è acceso, segnare le comunicazioni come lette**. Per limitare pannello e allegati agli amministratori imposta `PANEL_REQUIRE_ADMIN = True` in `custom_components/axios_famiglia/panel.py` e riavvia Home Assistant. L'interruttore delle impostazioni è invece disponibile a tutti, perché vale solo per il dispositivo di chi lo usa.
+Per impostazione predefinita il pannello è visibile a tutti gli utenti di Home Assistant. Chiunque possa aprirlo può quindi aprire gli allegati e usare il pulsante per segnare una comunicazione come letta sul portale. Se l'interruttore **Segna come letta all'apertura** è attivo, anche l'apertura di un allegato registra la lettura. Per limitare il pannello e queste funzioni agli amministratori imposta `PANEL_REQUIRE_ADMIN = True` in `custom_components/axios_famiglia/panel.py` e riavvia Home Assistant. L'interruttore delle impostazioni è disponibile a tutti gli utenti del pannello, perché vale solo per il dispositivo di chi lo usa.
 
 ### Il PDF si scarica invece di aprirsi
 
@@ -173,4 +186,4 @@ Il pannello **non ha un proprio accesso al portale** e non scrive nulla: legge s
 
 - Il pannello cerca le entità dal loro ID standard (`sensor.axios_<nome>_...`). Se rinomini un'entità, quel dato non compare più nel pannello.
 - Tema e lingua non si sincronizzano tra dispositivi diversi.
-- Il pannello mostra le informazioni, ma non permette di segnare una comunicazione come letta o di inviare nulla al portale.
+- Il pannello può segnare le comunicazioni come lette sul portale, tramite il pulsante dedicato o automaticamente all'apertura di un allegato. Non permette di inviare comunicazioni o altri contenuti al portale.

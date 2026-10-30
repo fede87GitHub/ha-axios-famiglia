@@ -18,7 +18,7 @@ A ogni aggiornamento l'integrazione confronta le voci lette dal portale con quel
 | Voce che sparisce e poi ricompare | Non scatta di nuovo. |
 | Cambio delle [opzioni](configurazione.md#opzioni) che allarga la finestra | Le voci che entrano nella finestra vengono memorizzate **senza eventi**. |
 
-Gli **argomenti svolti non generano eventi**, perché cambiano ogni giorno.
+Anche i nuovi **argomenti svolti** generano eventi. Alla prima lettura dopo l'installazione o dopo una modifica della finestra, quelli già presenti vengono memorizzati senza notifiche retroattive.
 
 ## Tipi di evento
 
@@ -30,6 +30,7 @@ Gli **argomenti svolti non generano eventi**, perché cambiano ogni giorno.
 | `new_test` | Nuova verifica | `date`, `text` |
 | `new_annotation` | Nuova annotazione | `date`, `text` |
 | `new_disciplinary_note` | Nuova nota disciplinare | `date`, `text` |
+| `new_topic` | Nuovi argomenti svolti | `date`, `subject`, `text`, `author` |
 
 In tutti i casi sono presenti anche:
 
